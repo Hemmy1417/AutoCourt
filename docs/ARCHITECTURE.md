@@ -236,7 +236,7 @@ at implementation):
 | `create_assessment(vehicle_json, claims_json)` | write, det | VIN code-validated (format + ISO 3779 check digit); bounded claim set with the seller's declared values; returns `ac-NNNNNN` |
 | `submit_evidence_text(id, item_json)` | write, det | one uploaded item (§3.1); verifies `text_sha256` over the supplied text; refuses past caps or after seal |
 | `submit_anchor_item(id, item_json)` | write, nondet | independent-anchor entry (§3.5); every validator fetches; exact-hash equivalence |
-| `record_dispute(id, dispute_json)` | write, det | buyer's disputed-claim flags + bounded note; refused after seal (post-seal disputes open the appeal path) |
+| `record_dispute(id, dispute_json)` | write, det | buyer's disputed-claim flags + bounded note; recordable before AND after seal — a post-verdict dispute is what opens the appeal path, tagged with the run count it followed |
 | `submit_assessment(id, manifest_json)` | write, det | seals the packet: claims + item-id list + manifest root, recomputed against stored items; immutable once sealed |
 | `adjudicate(id)` | write, nondet | one panel round over the **stored** packet; findings validated at the boundary; verdicts derived in code; run recorded |
 | `submit_appeal_evidence(id, item_json)` | write, det | NEW post-verdict item (≤ 4 per appeal), tagged with uploader and timestamp (S36) |

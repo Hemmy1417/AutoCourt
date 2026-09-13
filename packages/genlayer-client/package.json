@@ -1,0 +1,12 @@
+{
+  "name": "@autocourt/genlayer-client",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "dependencies": {
+    "@autocourt/shared-types": "*",
+    "genlayer-js": "2.0.0-rc.1"
+  }
+}

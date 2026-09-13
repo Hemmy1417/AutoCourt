@@ -1,0 +1,27 @@
+{
+  "name": "@autocourt/web",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "@autocourt/db": "*",
+    "@autocourt/evidence": "*",
+    "@autocourt/genlayer-client": "*",
+    "@autocourt/shared-types": "*",
+    "@autocourt/validation": "*",
+    "@autocourt/worker-core": "*",
+    "@node-rs/argon2": "^2.0.2",
+    "next": "^15.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0"
+  }
+}

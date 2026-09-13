@@ -24,6 +24,7 @@ model User {
   disputes      ClaimDispute[]
   auditEvents   AuditEvent[]
   sessions      Session[]
+  buyerAccess   BuyerAccess[]
 }
 
 model Session {
@@ -100,6 +101,7 @@ model Assessment {
   appeals       Appeal[]
   shareLinks    ShareLink[]
   jobs          Job[]
+  buyerAccess   BuyerAccess[]
 
   @@unique([onChainId])
   @@index([vehicleId])
@@ -241,6 +243,22 @@ model AuditEvent {
 
   @@index([evidenceItemId])
   @@index([actorId])
+}
+
+// A user who redeemed a share link holds buyer access on that
+// assessment. The role is APP-ATTESTED (the trust docs say so): what
+// defeats a second-inbox sybil is the contract's same-account and
+// VERIFIED-requires-INDEPENDENT rules, never this table.
+model BuyerAccess {
+  id           String     @id @default(cuid())
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id])
+  userId       String
+  user         User       @relation(fields: [userId], references: [id])
+  viaLinkId    String
+  createdAt    DateTime   @default(now())
+
+  @@unique([assessmentId, userId])
 }
 
 model ShareLink {

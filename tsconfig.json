@@ -3,6 +3,9 @@
   "references": [
     { "path": "packages/shared-types" },
     { "path": "packages/validation" },
-    { "path": "packages/evidence" }
+    { "path": "packages/evidence" },
+    { "path": "packages/db" },
+    { "path": "packages/genlayer-client" },
+    { "path": "packages/worker-core" }
   ]
 }

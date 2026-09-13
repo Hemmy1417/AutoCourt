@@ -1,0 +1,15 @@
+{
+  "name": "@autocourt/worker",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "node --experimental-strip-types src/index.ts"
+  },
+  "dependencies": {
+    "@autocourt/db": "*",
+    "@autocourt/genlayer-client": "*",
+    "@autocourt/worker-core": "*"
+  }
+}

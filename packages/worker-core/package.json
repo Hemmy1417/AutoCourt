@@ -1,0 +1,13 @@
+{
+  "name": "@autocourt/worker-core",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "dependencies": {
+    "@autocourt/db": "*",
+    "@autocourt/genlayer-client": "*",
+    "@autocourt/shared-types": "*"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    // genlayer-js 2.0.0-rc.1's own GenLayerChain type disagrees with its
+    // createClient parameter under this flag; relaxed for the bridge only.
+    "exactOptionalPropertyTypes": false
+  },
+  "include": ["src"],
+  "references": [{ "path": "../shared-types" }]
+}
