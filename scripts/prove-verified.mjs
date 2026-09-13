@@ -98,15 +98,25 @@ async function drained(actor, id, label, minutes = 25) {
       throw new Error(`${label}: ${failed.map((j) => `${j.kind}: ${j.lastError}`).join("; ")}`);
     const pending = jobs.filter((j) => j.state !== "DONE");
     const d = await actor.api(`/api/assessments/${id}`);
-    log(`${label}: ${d.state} · on-chain ${d.onChainId ?? "—"} · pending ${pending.length}`);
-    if (pending.length === 0) return d;
+    // A DONE job is not a settled record: the worker marks jobs done in
+    // one call and applies their effects in the next, so an anchor item
+    // can still be PENDING_ENTRY while every job reads DONE — and submit
+    // rightly refuses then. Gate on the item, as the UI does.
+    const entering = (d.evidenceItems ?? []).filter((i) => i.status === "PENDING_ENTRY");
+    log(`${label}: ${d.state} · on-chain ${d.onChainId ?? "—"} · pending ${pending.length}` +
+        (entering.length ? ` · entering ${entering.length}` : ""));
+    if (pending.length === 0 && entering.length === 0) return d;
   }
 }
+
+const ONLY = process.argv[2]; // "A" or "B"; both by default
 
 const seller = new Actor("Prove Seller");
 await seller.signIn();
 
 // ── A. the honest disclosure, independently corroborated ────────────────────
+let claimA = null, withAnchor = null;
+if (ONLY !== "B") {
 log("A — a disclosed accident, corroborated by an independent police report");
 const v1 = await seller.api("/api/vehicles", {
   method: "POST",
@@ -137,7 +147,7 @@ const anchor = await seller.api(`/api/assessments/${a1.id}/anchor`, {
 });
 log(`independent source queued as ${anchor.item.evidenceId}`);
 await drained(seller, a1.id, "A: anchor");
-const withAnchor = await seller.api(`/api/assessments/${a1.id}`);
+withAnchor = await seller.api(`/api/assessments/${a1.id}`);
 const anchorItem = withAnchor.evidenceItems.find((i) => i.lane === "ANCHOR");
 hard(anchorItem?.status === "EXTRACTED",
      "the independent source was fetched and hash-agreed by every validator");
@@ -150,14 +160,17 @@ await seller.api(`/api/assessments/${a1.id}/adjudicate`, { method: "POST" });
 log("A: adjudicating");
 await drained(seller, a1.id, "A: panel");
 const verdictA = await seller.api(`/api/assessments/${a1.id}/verdict`);
-const claimA = verdictA.verdict.claims?.[0];
+claimA = verdictA.verdict.claims?.[0];
 log(`A: ${claimA?.claim_type} → ${claimA?.verdict} · confidence ${claimA?.confidence} · support ${JSON.stringify(claimA?.support_classes)}`);
 hard(claimA?.verdict === "VERIFIED",
      "a disclosed claim with INDEPENDENT corroboration reaches VERIFIED");
 hard((claimA?.support_classes ?? []).includes("INDEPENDENT"),
      "the verdict rests on INDEPENDENT support, not the seller's own word");
+}
 
 // ── B. a trouble code that the evidence actually supports ───────────────────
+let verdictB = null;
+if (ONLY !== "A") {
 log("B — a diagnostic code with symptom support in the record");
 const v2 = await seller.api("/api/vehicles", {
   method: "POST",
@@ -186,14 +199,15 @@ await drained(seller, a2.id, "B: submit");
 await seller.api(`/api/assessments/${a2.id}/adjudicate`, { method: "POST" });
 log("B: adjudicating");
 await drained(seller, a2.id, "B: panel");
-const verdictB = await seller.api(`/api/assessments/${a2.id}/verdict`);
+verdictB = await seller.api(`/api/assessments/${a2.id}/verdict`);
 log(`B: rollup ${verdictB.verdict.rollup} · flags ${JSON.stringify(verdictB.verdict.flags)}`);
 hard(verdictB.verdict.flags?.diagnostic_concern_supported === true,
      "a trouble code with symptom support raises the diagnostic flag");
+}
 
 console.log("\n============== PROOF RUN ==============");
-console.log(`A ${withAnchor.onChainId}: ${claimA?.verdict} (${(claimA?.support_classes ?? []).join(", ")}) · identity ${withAnchor.identityStatus}`);
-console.log(`B: rollup ${verdictB.verdict.rollup} · diagnostic ${verdictB.verdict.flags?.diagnostic_concern_supported}`);
+if (withAnchor) console.log(`A ${withAnchor.onChainId}: ${claimA?.verdict} (${(claimA?.support_classes ?? []).join(", ")}) · identity ${withAnchor.identityStatus}`);
+if (verdictB) console.log(`B: rollup ${verdictB.verdict.rollup} · diagnostic ${verdictB.verdict.flags?.diagnostic_concern_supported}`);
 console.log(failures.length === 0
   ? "PROOF COMPLETE — VERIFIED and the diagnostic flag are now live facts."
   : `PROOF INCOMPLETE — ${failures.length}: ${failures.join("; ")}`);

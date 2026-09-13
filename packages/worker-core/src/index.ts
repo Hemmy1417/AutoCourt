@@ -156,6 +156,40 @@ export async function runPendingJobs(deps: WorkerDeps): Promise<DrainResult> {
     if (leased.count === 0) continue; // someone else took it
     const job = candidate as unknown as JobRow;
 
+    // JOBS FOR ONE ASSESSMENT ARE A SEQUENCE, not a set. Sealing depends
+    // on the evidence writes before it; adjudicating depends on the seal.
+    // The lease stops one job running twice, but says nothing about
+    // ORDER — so a job left in flight (accepted, not yet finalized) used
+    // to let the next one overtake it, and a SEAL reached the contract
+    // before the evidence it was meant to cover. The contract refused it
+    // correctly: "sealing requires at least one evidence item".
+    const earlier = await prisma.job.findMany({
+      where: {
+        assessmentId: job.assessmentId,
+        createdAt: { lt: candidate.createdAt },
+        state: { not: "DONE" },
+      },
+      select: { state: true, kind: true },
+    });
+    if (earlier.length > 0) {
+      const failedFirst = earlier.find((e) => e.state === "FAILED");
+      await prisma.job.update({
+        where: { id: job.id },
+        data: failedFirst
+          ? {
+              // Everything after a failed step would address a record in
+              // a state it never reached.
+              state: "FAILED",
+              lockedUntil: null,
+              lastError: `an earlier step failed (${failedFirst.kind}), so this one cannot run`,
+            }
+          : { lockedUntil: null },
+      });
+      if (failedFirst) result.failed += 1;
+      else result.stillPending += 1;
+      continue;
+    }
+
     // A job that addresses the record must know its on-chain id. Jobs
     // enqueued alongside CREATE lack it until the CREATE effect links
     // the assessment — resolve it from the row at drain time, and if it
