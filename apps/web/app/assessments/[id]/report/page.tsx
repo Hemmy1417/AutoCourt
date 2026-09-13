@@ -45,7 +45,6 @@ interface ClaimResult {
   contradicting: string[];
   support_classes: string[];
   contradict_classes: string[];
-  record_sufficient: boolean;
 }
 
 const NEXT_ACTION_COPY: Record<string, string> = {
@@ -159,8 +158,7 @@ export default function Report() {
               </span>
               <span>·</span>
               <span>
-                record {c.record_sufficient ? "sufficient" : "insufficient"}{" "}
-                · support{" "}
+                support{" "}
                 {c.support_classes.join("/").toLowerCase() || "none"} ·
                 contradiction{" "}
                 {c.contradict_classes.join("/").toLowerCase() || "none"}

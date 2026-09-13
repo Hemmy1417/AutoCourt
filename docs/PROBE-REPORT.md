@@ -68,3 +68,27 @@ bools), dropped ABSENT rows at the boundary, and added `[DISAGREE]`
 prints at every refusal point so the next split names itself. Five
 direct tests pin both directions: shadings never burn a round, cuts
 always refuse one.
+
+## The materiality round (the prints paying for themselves)
+
+The first canonical deploy (`0x214821A6F32fb35CCaa2CfaAC11087850fe95555`)
+opened its live arc and round 1 split again — tx
+`0x82db066b54f11db7496e6b0a91b0aa23c351cf68c36815044837780ea14bc7df`,
+MAJORITY_DISAGREE — and this time three validators PRINTED the reason:
+`[DISAGREE] derived report differs`, with both canonical reports in the
+stdout. They differed in exactly one bit: CL-01's stored
+`record_sufficient` (one family judged the record sufficient, one did
+not) **while every derived verdict, flag, confidence and next action was
+identical**. The sufficiency cut is consulted at exactly two gates
+(VERIFIED, and CONTRADICTED-vs-INCONCLUSIVE); when neither gate is live
+it is immaterial metadata, and where it IS material its effect is fully
+absorbed into the verdict — which is compared anyway.
+
+Fix: the report no longer stores the raw cut, and the validator no
+longer compares it separately — consensus is required on what has a
+consequence, and only that. Two direct tests pin both directions
+(immaterial difference survives; the same difference with an INDEPENDENT
+anchor on the record moves the VERIFIED gate and refuses). A changed
+contract is a new address: the deployment of record is
+`0xE9d81837Ca4af3bdbCE3393556597D308f6aC6a9`, and `0x214821A6…5555` is
+recorded here as superseded.

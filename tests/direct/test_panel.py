@@ -192,12 +192,44 @@ def test_sufficiency_shading_differences_do_not_split_the_round(module, c):
     assert c.adjudicate(aid).startswith("run 1:")
 
 
-def test_sufficient_cut_difference_refuses_the_round(module, c):
+def test_immaterial_sufficiency_difference_survives(module, c):
+    """With FIRST_PARTY-only support, the sufficiency cut moves nothing
+    the report contains — a live round split on exactly this while
+    deriving identical verdicts, so consensus is required only on what
+    has a consequence."""
     aid = build_assessment(module, c)
     leader_ans = panel_answer(
         sufficiency={"CL-01": "SUFFICIENT", "CL-02": "SUFFICIENT"})
     validator_ans = panel_answer(
         sufficiency={"CL-01": "PARTIAL", "CL-02": "SUFFICIENT"})
+    panel_says(leader_ans, validator_ans)
+    assert c.adjudicate(aid).startswith("run 1:")
+
+
+def test_material_sufficiency_difference_refuses_the_round(module, c):
+    """With an INDEPENDENT anchor on the record, the same cut decides
+    VERIFIED vs PARTIALLY_VERIFIED — a consequence, so it refuses."""
+    from conftest import anchor_item
+    aid = build_assessment(module, c, items=[svc_item(), hist_item()],
+                           seal=False)
+    c.submit_anchor_item(aid, anchor_item())
+    stored = [json.loads(c.items[f"{aid}|{eid}"])
+              for eid in json.loads(c.item_index[aid])]
+    c.submit_assessment(aid, module._manifest_root(stored))
+    reg_findings = [
+        finding("CL-01", "E-SVC", "SUPPORTED", "MODERATE",
+                ["Odometer reading 87,432 miles at service"]),
+        finding("CL-01", "E-REG", "SUPPORTED", "MODERATE",
+                ["Registered mileage reading 87,401 miles"]),
+        finding("CL-02", "E-HIST", "SUPPORTED", "MODERATE",
+                ["No accident records found for this vehicle"]),
+    ]
+    leader_ans = panel_answer(findings=reg_findings,
+                              sufficiency={"CL-01": "SUFFICIENT",
+                                           "CL-02": "SUFFICIENT"})
+    validator_ans = panel_answer(findings=reg_findings,
+                                 sufficiency={"CL-01": "PARTIAL",
+                                              "CL-02": "SUFFICIENT"})
     panel_says(leader_ans, validator_ans)
     with pytest.raises(err(module), match="did not agree"):
         c.adjudicate(aid)

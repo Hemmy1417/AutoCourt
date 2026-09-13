@@ -569,7 +569,12 @@ def _derive_claim(claim: dict, findings: list, items_by_id: dict,
         "contradicting": sorted(e["evidence_id"] for e in contradict),
         "support_classes": sorted(s_classes),
         "contradict_classes": sorted(c_classes),
-        "record_sufficient": sufficient,
+        # The sufficiency cut is deliberately NOT stored here: it is
+        # consulted at exactly two gates (VERIFIED, and CONTRADICTED vs
+        # INCONCLUSIVE), and where it is material its effect is fully
+        # absorbed into the verdict — which IS compared. Storing the raw
+        # cut put an immaterial judgment inside equivalence, and a live
+        # round split on it while deriving identical verdicts.
     }
 
 
@@ -1579,13 +1584,10 @@ Respond ONLY with JSON:
                                   "does not ground in the stored record: "
                                   f"{str(q)[:160]}")
                             return False
-                m_cut = mine["sufficiency"][cid] == "SUFFICIENT"
-                t_cut = str(t_suff.get(cid, "")) == "SUFFICIENT"
-                if m_cut != t_cut:
-                    print(f"[DISAGREE] {cid}: sufficient-cut — mine "
-                          f"{mine['sufficiency'][cid]} vs leader "
-                          f"{t_suff.get(cid)}")
-                    return False
+                # The sufficiency judgment is NOT compared here: where it
+                # is material it moves the verdict (compared above, and
+                # re-derived from the leader's own inputs); where it is
+                # not, comparing it would burn rounds on metadata.
             for conflict_id in mine["explanations"]:
                 if mine["explanations"][conflict_id] != \
                         t_expl.get(conflict_id):

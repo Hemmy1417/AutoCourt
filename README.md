@@ -17,10 +17,11 @@
 
 | | |
 |---|---|
-| Contract | [`0x214821A6F32fb35CCaa2CfaAC11087850fe95555`](https://explorer-studio-dev.genlayer.com/address/0x214821A6F32fb35CCaa2CfaAC11087850fe95555) |
+| Contract | [`0xE9d81837Ca4af3bdbCE3393556597D308f6aC6a9`](https://explorer-studio-dev.genlayer.com/address/0xE9d81837Ca4af3bdbCE3393556597D308f6aC6a9) |
 | Network | GenLayer Studio Next, chain 61997 |
 | RPC | `https://studio-next.genlayer.com/api` |
-| Source | [`contracts/autocourt_assessment.py`](contracts/autocourt_assessment.py) — byte-verified: `node scripts/deploy.mjs verify 0x214821A6…5555` reports byte-for-byte identity (sha256 `f0f8d30a…97a2d`) |
+| Source | [`contracts/autocourt_assessment.py`](contracts/autocourt_assessment.py) — byte-verified: `node scripts/deploy.mjs verify 0xE9d81837…C6a9` reports byte-for-byte identity (sha256 `5c630f1b…68bc`) |
+| Superseded | `0x214821A6…5555` — the first canonical deploy; its opening arc round split on an immaterial sufficiency bit (PROBE-REPORT), the materiality fix changed the contract, and a changed contract is a new address |
 | Anchor allowlist | `["raw.githubusercontent.com"]` — the proven independent evidence host on this network, standing in for vehicle registries; visible in `get_config()`, and `VERIFIED` is reachable only through it |
 
 ## What the contract owns, and what it refuses to
@@ -122,7 +123,7 @@ in the on-chain record.
 
 | suite | count | what it proves |
 |---|---|---|
-| `pytest tests/direct` | 105 | the whole contract against a runtime-strict stub: floors, walls, appeals, forged-leader replays (a fabricated-but-consistent dossier is refused because its quotes do not ground), decision-cut equivalence in both directions |
+| `pytest tests/direct` | 106 | the whole contract against a runtime-strict stub: floors, walls, appeals, forged-leader replays (a fabricated-but-consistent dossier is refused because its quotes do not ground), decision-cut equivalence in both directions |
 | `npx vitest run` | 48 | VIN/OBD-II/mileage code, evidence pipeline honesty, the packet builder (with a golden pinning TS `manifestRoot` byte-equal to the contract's), S40 act availability as a pure function |
 | `genvm-lint` | clean | AST-level GenVM validity |
 
