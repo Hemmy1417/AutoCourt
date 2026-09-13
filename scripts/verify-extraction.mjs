@@ -17,9 +17,27 @@
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 
-// The pipeline lives in the workspace package; run from the repo root.
-const { extractEvidence } = await import("../packages/evidence/src/extract.ts")
-  .catch(async () => import("@autocourt/evidence"));
+/**
+ * The extractor is loaded LAZILY and from COMPILED JavaScript.
+ *
+ * It used to be imported at the top from the TypeScript source, which
+ * meant plain `node` threw ERR_UNKNOWN_FILE_EXTENSION before doing
+ * anything — including in `text` mode, which needs no extractor at all.
+ * A verification tool a third party cannot run is not a verification
+ * tool, and this one was cited in the docs while never having run once.
+ */
+async function loadExtractor() {
+  const url = new URL("../packages/evidence/dist/extract.js", import.meta.url);
+  try {
+    return (await import(url.href)).extractEvidence;
+  } catch {
+    console.error(
+      "the evidence pipeline is not compiled yet — run `npx tsc -b` in the " +
+        "repo root, then try again. (`text` mode needs no compilation.)",
+    );
+    process.exit(2);
+  }
+}
 
 const [mode, path, expected] = process.argv.slice(2);
 if (!mode || !path) {
@@ -40,6 +58,7 @@ if (mode === "text") {
 } else if (mode === "original") {
   const bytes = new Uint8Array(readFileSync(path));
   console.log(`file_sha256(${path}) = ${sha256(bytes)}`);
+  const extractEvidence = await loadExtractor();
   const got = await extractEvidence(bytes);
   console.log(`extraction: ${got.status} (${got.kind})`);
   const textHash = createHash("sha256")
