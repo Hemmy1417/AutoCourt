@@ -155,8 +155,11 @@ findings for the code flags, and quoted grounds. Deterministic code then:
   `unresolved_questions` is the one free-prose field, rendered under an
   explicit "panel narrative — not consensus-checked" label (S12);
 - treats an unknown enum, a malformed finding, or a structurally invalid
-  payload as a failed adjudication that **fails closed** (S5): the run
-  records `REJECTED`, state does not advance, the previous record stands.
+  payload as a failed adjudication that **fails closed** (S5): the
+  transaction fails under consensus, state does not advance, the previous
+  record stands — and the app records the refused attempt as a `REJECTED`
+  run with its transaction hash, since an output that failed the gate can
+  never be written on-chain.
 
 ### 5. Equivalence covers the findings, not the prose — S7, S21, CredenceLend lessons
 

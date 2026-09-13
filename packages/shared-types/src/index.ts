@@ -56,7 +56,13 @@ export const ASSESSMENT_ROLLUPS = [
 ] as const;
 export type AssessmentRollup = (typeof ASSESSMENT_ROLLUPS)[number];
 
-/** (d) Run statuses — never verdicts. REJECTED = model output failed the structural gate. */
+/**
+ * (d) Run statuses — never verdicts. The CHAIN records only SUCCESS runs:
+ * a structurally invalid panel output never survives consensus, so
+ * REJECTED (consensus refused the attempt) and FAILED (transport/transient,
+ * retryable) are app-side records of attempts, each kept with its
+ * transaction hash.
+ */
 export const RUN_STATUSES = ["SUCCESS", "REJECTED", "FAILED"] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
 

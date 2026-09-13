@@ -265,7 +265,7 @@ auditable. `readjudicate` is callable only from `ADJUDICATED`. Retrying a
 | anchor fetch: all nodes unreachable or hash-mismatch | item enters as `SOURCE_UNAVAILABLE` status; never an adverse finding |
 | anchor fetch: reachability split | no state change; retry — never a verdict from partial sight |
 | LLM/transport failure mid-round | transient failure → transaction fails, state unchanged; worker retries bounded-N then `Assessment → FAILED` with a retry path (S26 exit) |
-| malformed / structurally invalid model output | run recorded `REJECTED`; state does not advance; previous record stands |
+| malformed / structurally invalid model output | never survives consensus: the leader is refused and rotated, and if no valid output emerges the transaction fails with state unchanged; the app records the refused attempt as a `REJECTED` run with its transaction hash — the chain records only judgments that survived consensus |
 | ungrounded quote on one finding | **not** a run failure — drop-and-downgrade (§4.5) |
 | protocol-level UNDETERMINED | no contract outcome; poll and retry; never mapped to a verdict |
 
@@ -378,8 +378,10 @@ contradict itself:
   precedence over (a)+(b): `POSSIBLE_ODOMETER_ROLLBACK ≻ MILEAGE_CONFLICT ≻
   MATERIAL_CONCERN ≻ DIAGNOSTIC_CONCERN_SUPPORTED ≻` (claim-verdict
   summary).
-- **(d) Run/item statuses** (never verdicts): `REJECTED` (a run whose model
-  output failed the structural gate), `SOURCE_UNAVAILABLE` (an anchor item
+- **(d) Run/item statuses** (never verdicts): `REJECTED` (an adjudication
+  attempt whose transaction consensus refused — recorded app-side with its
+  tx hash, because a structurally invalid output never survives consensus
+  and so can never be written on-chain), `SOURCE_UNAVAILABLE` (an anchor item
   all validators agreed was unreachable — §3.5; for uploaded items the
   analogue is `extraction_status UNAVAILABLE`, disclosed to the panel, with
   the sufficiency gate steering claims that rest on it to
