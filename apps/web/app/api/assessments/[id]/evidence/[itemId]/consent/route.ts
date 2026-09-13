@@ -14,7 +14,7 @@ import { audit, requireAccess } from "../../../../../../../lib/service.js";
  * client must echo the exact statement version it displayed; the packet
  * builder refuses any item without this timestamp.
  */
-export const CONSENT_VERSION = "publicity-statement-1";
+const CONSENT_VERSION = "publicity-statement-1";
 
 export async function POST(
   req: Request,

@@ -66,7 +66,7 @@ export async function POST(
         .filter((o) => o.odometerReading !== null)
         .map((o) => ({
           doc_date: o.docDate,
-          odometer_reading: o.odometerReading ?? undefined,
+          odometer_reading: o.odometerReading as number,
           odometer_unit: (o.odometerUnit ?? "MILES") as "MILES" | "KM",
           source_field: o.sourceField,
         })),

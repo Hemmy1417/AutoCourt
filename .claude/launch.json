@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web",
+      "runtimeExecutable": "npx.cmd",
+      "runtimeArgs": ["next", "dev", "apps/web"],
+      "port": 3000
+    }
+  ]
+}

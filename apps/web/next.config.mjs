@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   transpilePackages: [
@@ -8,8 +10,17 @@ const nextConfig = {
     "@autocourt/worker-core",
     "@autocourt/db",
   ],
-  experimental: {
-    serverComponentsExternalPackages: ["@prisma/client", "@node-rs/argon2"],
+  serverExternalPackages: ["@prisma/client", "@node-rs/argon2"],
+  // The monorepo root — a stray lockfile in the user profile otherwise
+  // makes Next infer the wrong workspace root.
+  outputFileTracingRoot: fileURLToPath(new URL("../../", import.meta.url)),
+  webpack: (config) => {
+    // The repo uses node16-style ESM imports (./x.js resolving to x.ts);
+    // teach webpack the same mapping tsc and vitest already use.
+    config.resolve.extensionAlias = {
+      ".js": [".js", ".ts", ".tsx"],
+    };
+    return config;
   },
 };
 

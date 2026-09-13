@@ -19,7 +19,9 @@ export async function POST(
     if (!allowBoth("assess", user.sessionId, clientIp(req))) throw tooMany();
     const { id } = await ctx.params;
     const { assessment } = await requireAccess(id, user.id);
-    if (assessment.state !== "SUBMITTED")
+    // FAILED is retryable by either party (S26's exit); each retry is a
+    // NEW attempt with its own transaction hash.
+    if (assessment.state !== "SUBMITTED" && assessment.state !== "FAILED")
       throw conflict(
         assessment.state === "PROCESSING"
           ? "an adjudication is already in flight"

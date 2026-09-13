@@ -70,7 +70,12 @@ export class AutoCourtChain {
       rpcUrls: { default: { http: [cfg.rpcUrl] } },
     } as typeof studioDevnet;
     const account = createAccount(cfg.privateKey as `0x${string}`);
-    this.client = createClient({ chain, account });
+    // genlayer-js 2.0.0-rc.1's GenLayerChain type disagrees with its own
+    // createClient parameter under exactOptionalPropertyTypes; the value
+    // is the library's own chain object, so the cast is sound.
+    this.client = createClient({ chain, account } as Parameters<
+      typeof createClient
+    >[0]);
     this.rpcUrl = cfg.rpcUrl;
     this.address = cfg.contractAddress;
     this.account = { address: account.address };

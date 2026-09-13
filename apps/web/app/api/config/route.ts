@@ -1,6 +1,9 @@
 import { chain } from "../../../lib/chain.js";
 import { errorResponse } from "../../../lib/errors.js";
 
+// Live chain read on every call — never prerendered at build.
+export const dynamic = "force-dynamic";
+
 /**
  * The contract's own bounds, proxied verbatim — the frontend never
  * guesses a limit the contract enforces.

@@ -1,0 +1,53 @@
+import { prisma } from "@autocourt/db";
+
+import { requireUser } from "../../../lib/auth.js";
+import { errorResponse } from "../../../lib/errors.js";
+
+/** Screen 13's backing: profile, sessions, evidence visibility, links. */
+export async function GET(req: Request): Promise<Response> {
+  try {
+    const user = await requireUser(req);
+    const [sessions, evidence, links] = await Promise.all([
+      prisma.session.findMany({
+        where: { userId: user.id, expiresAt: { gt: new Date() } },
+        orderBy: { createdAt: "desc" },
+        select: { id: true, createdAt: true, expiresAt: true },
+      }),
+      prisma.evidenceItem.findMany({
+        where: { uploaderId: user.id },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          assessmentId: true,
+          evidenceId: true,
+          declaredClass: true,
+          declaredLabel: true,
+          status: true,
+          redactionStatus: true,
+          consentedAt: true,
+          onChainTxHash: true,
+        },
+      }),
+      prisma.shareLink.findMany({
+        where: { assessment: { vehicle: { sellerId: user.id } } },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          assessmentId: true,
+          state: true,
+          expiresAt: true,
+          createdAt: true,
+        },
+      }),
+    ]);
+    return Response.json({
+      profile: { id: user.id, email: user.email, displayName: user.displayName },
+      currentSessionId: user.sessionId,
+      sessions,
+      evidence,
+      shareLinks: links,
+    });
+  } catch (e) {
+    return errorResponse(e);
+  }
+}
