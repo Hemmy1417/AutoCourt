@@ -107,6 +107,54 @@ export async function recordJobEffects(
   }
 
   // 3. Evidence submissions that finished: stamp the tx hash on the item.
+  //    ANCHOR items additionally get their REAL hashes and status read
+  //    back from the chain — the contract fetched those bytes itself and
+  //    normalized them, so only it knows what it stored. Until this
+  //    lands, the row says PENDING_ENTRY and the packet cannot be sealed
+  //    over a hash the app merely guessed.
+  const doneAnchors = await prisma.job.findMany({
+    where: { kind: "SUBMIT_ANCHOR", state: "DONE", txHash: { not: null } },
+    include: { assessment: true },
+  });
+  for (const job of doneAnchors) {
+    const payload = JSON.parse(job.payloadJson || "{}");
+    const evidenceId = JSON.parse(payload.itemJson ?? "{}").evidence_id;
+    if (!evidenceId || !job.assessment.onChainId) continue;
+    const row = await prisma.evidenceItem.findFirst({
+      where: { assessmentId: job.assessmentId, evidenceId },
+    });
+    if (!row || row.status !== "PENDING_ENTRY") continue;
+    try {
+      const stored = await chainClient.getItemText(
+        job.assessment.onChainId,
+        evidenceId,
+      );
+      await prisma.evidenceItem.update({
+        where: { id: row.id },
+        data: {
+          status: String(stored["status"] ?? "SOURCE_UNAVAILABLE"),
+          fileSha256: String(stored["file_sha256"] ?? row.fileSha256),
+          textSha256: String(stored["text_sha256"] ?? row.textSha256),
+          extractorVersion: String(
+            stored["extractor_version"] ?? row.extractorVersion,
+          ),
+          onChainTxHash: job.txHash,
+          extraction: {
+            update: {
+              status:
+                String(stored["status"]) === "EXTRACTED"
+                  ? "EXTRACTED"
+                  : "UNAVAILABLE",
+              normalizedText: String(stored["text"] ?? ""),
+            },
+          },
+        },
+      });
+    } catch {
+      // Leave it PENDING_ENTRY; the next drain retries the read.
+    }
+  }
+
   const doneEvidence = await prisma.job.findMany({
     where: {
       kind: { in: ["SUBMIT_EVIDENCE", "SUBMIT_APPEAL_EVIDENCE"] },

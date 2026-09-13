@@ -71,6 +71,8 @@ interface EvidenceRow {
   declaredLabel: string;
   uploaderId: string;
   uploaderRole: string;
+  lane: string;
+  anchorUrl: string | null;
   status: string;
   mimeType: string;
   fileSha256: string;
@@ -146,6 +148,9 @@ export default function AssessmentDossier() {
     role: detail.myRole,
     evidenceCount: detail.evidenceItems.length,
     unconsentedCount: detail.evidenceItems.filter((i) => !i.consentedAt).length,
+    pendingAnchorCount: detail.evidenceItems.filter(
+      (i) => i.status === "PENDING_ENTRY",
+    ).length,
     successRuns,
     maxRuns: 4,
     newAppealEvidenceCount: detail.evidenceItems.filter(
@@ -639,6 +644,7 @@ function EvidenceSection({
         ))
       )}
       {canAdd ? <UploadCard detail={detail} onChange={onChange} /> : null}
+      {canAdd ? <AnchorCard detail={detail} onChange={onChange} /> : null}
     </>
   );
 }
@@ -678,6 +684,18 @@ function EvidenceCard({
             <span className="chip chip-dim">
               <span className="dot" />
               stored, unextracted
+            </span>
+          ) : null}
+          {item.lane === "ANCHOR" ? (
+            <span
+              className="tag"
+              title={item.anchorUrl ?? ""}
+            >
+              {item.status === "PENDING_ENTRY"
+                ? "independent source — validators are fetching it"
+                : item.status === "SOURCE_UNAVAILABLE"
+                  ? "independent source — validators could not agree on it; never judged"
+                  : "independent source — fetched and hash-agreed by every validator"}
             </span>
           ) : null}
           {item.redactionStatus === "REDACTED" ? (
@@ -1155,6 +1173,107 @@ async function signAttestation(opts: {
     method: "personal_sign",
     params: [attestationMessage(opts), address],
   })) as string;
+}
+
+/**
+ * The independent-source lane — the only evidence the CONTRACT fetches,
+ * and the only path to VERIFIED. It lived in scripts until now, which
+ * meant the strongest verdict in the system was unreachable by anyone
+ * actually using the product.
+ */
+function AnchorCard({
+  detail,
+  onChange,
+}: {
+  detail: Detail;
+  onChange: () => void;
+}) {
+  const [url, setUrl] = useState("");
+  const [label, setLabel] = useState("");
+  const [allowlist, setAllowlist] = useState<string[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  useEffect(() => {
+    api<{ config: { anchor_allowlist?: string[] } }>("/api/config")
+      .then((c) => setAllowlist(c.config.anchor_allowlist ?? []))
+      .catch(() => setAllowlist([]));
+  }, []);
+
+  return (
+    <div className="card" style={{ marginTop: 14 }}>
+      <h3>Add an independent source</h3>
+      <p className="muted small">
+        Unlike a document you upload, this one is fetched by{" "}
+        <strong>every validator itself</strong> and only enters the record
+        if they all agree on the bytes. It is the only evidence neither
+        party can author — and the only way a claim can reach VERIFIED.
+      </p>
+      {allowlist !== null && allowlist.length === 0 ? (
+        <div className="notice notice-warn" style={{ marginTop: 10 }}>
+          This deployment has no sources allowlisted, so VERIFIED is not
+          reachable here. That is a deployment choice, and the report says
+          so rather than pretending otherwise.
+        </div>
+      ) : (
+        <>
+          <div className="field" style={{ marginTop: 10 }}>
+            <label>Source URL</label>
+            <input
+              type="url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://raw.githubusercontent.com/…/registry-extract.txt"
+            />
+            {allowlist ? (
+              <span className="muted" style={{ fontSize: 12 }}>
+                Allowlisted by the contract: {allowlist.join(", ")}
+              </span>
+            ) : null}
+          </div>
+          <div className="field">
+            <label>What this is (your label — the panel judges the content)</label>
+            <input
+              type="text"
+              maxLength={80}
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="National registry extract"
+            />
+          </div>
+          <p className="muted" style={{ fontSize: 12 }}>
+            We read it once now to commit an expected hash. If what the
+            validators fetch differs, the item is recorded as unavailable
+            and never judged — you will see that on the record.
+          </p>
+          <ErrorNotice error={error} />
+          <button
+            className="btn btn-primary"
+            disabled={busy || !url.startsWith("https://")}
+            onClick={async () => {
+              setBusy(true);
+              setError(null);
+              try {
+                await api(`/api/assessments/${detail.id}/anchor`, {
+                  method: "POST",
+                  body: JSON.stringify({ url, declaredLabel: label }),
+                });
+                setUrl("");
+                setLabel("");
+                onChange();
+              } catch (e) {
+                setError(e);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy ? <Spinner /> : "Put it to the validators"}
+          </button>
+        </>
+      )}
+    </div>
+  );
 }
 
 function UploadCard({

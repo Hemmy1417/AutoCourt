@@ -211,3 +211,39 @@ export async function enqueueJob(
 export function readOriginal(fileSha256: string): Promise<Uint8Array> {
   return storage.get(fileSha256);
 }
+
+/**
+ * Make sure the assessment exists ON CHAIN before anything addresses it.
+ *
+ * Submission used to be the only thing that enqueued CREATE, which meant
+ * an independent source added beforehand queued a write against a record
+ * the contract had never heard of — its job would wait for an on-chain
+ * id forever. Anything that needs the record to exist calls this first;
+ * it is idempotent.
+ */
+export async function ensureCreateJob(assessmentId: string): Promise<void> {
+  const a = await prisma.assessment.findUnique({
+    where: { id: assessmentId },
+    include: { vehicle: { include: { claims: true, seller: true } } },
+  });
+  if (!a || a.onChainId) return;
+  const already = await prisma.job.findFirst({
+    where: { assessmentId, kind: "CREATE", state: { in: ["PENDING", "DONE"] } },
+  });
+  if (already) return;
+  await enqueueJob(assessmentId, "CREATE", {
+    vehicleJson: JSON.stringify({
+      vin: a.vehicle.vin,
+      make: a.vehicle.make,
+      model: a.vehicle.model,
+      year: a.vehicle.year,
+      seller_account: a.vehicle.seller.walletAddress,
+    }),
+    claimsJson: JSON.stringify(
+      a.vehicle.claims.map((c) => ({
+        type: c.type,
+        declared_value: c.declaredValue,
+      })),
+    ),
+  });
+}

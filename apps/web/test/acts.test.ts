@@ -11,6 +11,7 @@ const base: ActsInput = {
   role: "SELLER",
   evidenceCount: 2,
   unconsentedCount: 0,
+  pendingAnchorCount: 0,
   successRuns: 0,
   maxRuns: 4,
   newAppealEvidenceCount: 0,
@@ -41,6 +42,15 @@ describe("submit gate", () => {
     expect(act({ role: "BUYER" }, "submit").reason).toMatch(/only the seller/);
     expect(act({ evidenceCount: 0 }, "submit").reason).toMatch(/at least one/);
     expect(act({ unconsentedCount: 2 }, "submit").reason).toMatch(/consent/);
+  });
+
+  it("an independent source still entering the record blocks the seal", () => {
+    // Its real hashes are not known until every validator has agreed on
+    // the bytes they fetched, so a manifest sealed now would cover a
+    // hash the app merely guessed.
+    const a = act({ pendingAnchorCount: 1 }, "submit");
+    expect(a.available).toBe(false);
+    expect(a.reason).toMatch(/independent source/i);
     expect(act({ state: "SUBMITTED" }, "submit").reason).toMatch(/already/);
   });
 });

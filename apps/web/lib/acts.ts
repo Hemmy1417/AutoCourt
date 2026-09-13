@@ -15,7 +15,9 @@ export interface ActsInput {
   successRuns: number;
   maxRuns: number;
   newAppealEvidenceCount: number; // uploaded post-verdict, not yet on-chain
-  freshDisputeCount: number; // recorded after the latest success run
+  freshDisputeCount: number;
+  /** Anchors whose every-validator fetch has not landed yet. */
+  pendingAnchorCount: number; // recorded after the latest success run
   hasOnChainId: boolean;
 }
 
@@ -46,6 +48,7 @@ export function actsFor(input: ActsInput): Act[] {
     maxRuns,
     newAppealEvidenceCount,
     freshDisputeCount,
+    pendingAnchorCount,
   } = input;
   const acts: Act[] = [];
   const runsLeft = maxRuns - successRuns;
@@ -100,7 +103,8 @@ export function actsFor(input: ActsInput): Act[] {
     role === "SELLER" &&
     state === "DRAFT" &&
     evidenceCount > 0 &&
-    unconsentedCount === 0;
+    unconsentedCount === 0 &&
+    pendingAnchorCount === 0;
   acts.push({
     id: "submit",
     label: "Submit for adjudication",
@@ -115,7 +119,11 @@ export function actsFor(input: ActsInput): Act[] {
             ? {
                 reason: `${unconsentedCount} item(s) still need the publicity consent`,
               }
-            : {}),
+            : pendingAnchorCount > 0
+              ? {
+                  reason: `${pendingAnchorCount} independent source(s) still entering the record — validators must agree on the bytes they fetched before the packet can be sealed`,
+                }
+              : {}),
   });
 
   acts.push({

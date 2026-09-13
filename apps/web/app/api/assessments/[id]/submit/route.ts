@@ -15,7 +15,12 @@ import {
   type ItemForPacket,
 } from "../../../../../lib/packet.js";
 import { allowBoth } from "../../../../../lib/ratelimit.js";
-import { audit, enqueueJob, requireAccess } from "../../../../../lib/service.js";
+import {
+  audit,
+  ensureCreateJob,
+  enqueueJob,
+  requireAccess,
+} from "../../../../../lib/service.js";
 
 /**
  * Seal-and-submit: builds the exact chain write plan for this assessment
@@ -43,7 +48,23 @@ export async function POST(
     if (items.length > 8)
       throw badRequest("at most 8 items at submission (the contract's cap)");
 
-    const unconsented = items.filter((i) => !i.consentedAt);
+    // An anchor is already on the chain — the contract fetched and
+    // hashed it itself. It must never be re-sent through the uploaded
+    // lane, and the packet cannot be sealed while one is still in
+    // flight, because its real hashes are not known until it lands.
+    const anchors = items.filter((i) => i.lane === "ANCHOR");
+    const pendingAnchors = anchors.filter((i) => i.status === "PENDING_ENTRY");
+    if (pendingAnchors.length > 0) {
+      throw badRequest(
+        "an independent source is still entering the record — validators " +
+          "must agree on the bytes they fetched before the packet can be " +
+          "sealed",
+        { evidenceIds: pendingAnchors.map((i) => i.evidenceId) },
+      );
+    }
+    const uploaded = items.filter((i) => i.lane !== "ANCHOR");
+
+    const unconsented = uploaded.filter((i) => !i.consentedAt);
     if (unconsented.length > 0) {
       throw badRequest(
         "every packet item needs an explicit publicity consent first",
@@ -51,6 +72,8 @@ export async function POST(
       );
     }
 
+    // Manifest entries cover EVERY stored item, anchors included; only
+    // the uploaded ones need a submit_evidence_text write.
     const packetItems: ItemForPacket[] = items.map((i) => ({
       evidenceId: i.evidenceId,
       declaredClass: i.declaredClass,
@@ -96,10 +119,10 @@ export async function POST(
 
     // The job chain. CREATE resolves the on-chain id; each later job
     // reads it from the assessment row at drain time.
-    if (!assessment.onChainId) {
-      await enqueueJob(id, "CREATE", { vehicleJson, claimsJson });
-    }
+    await ensureCreateJob(id);
+    const uploadedIds = new Set(uploaded.map((i) => i.evidenceId));
     for (const item of packetItems) {
+      if (!uploadedIds.has(item.evidenceId)) continue; // already on chain
       await enqueueJob(id, "SUBMIT_EVIDENCE", {
         itemJson: evidenceWritePayload(item),
       });

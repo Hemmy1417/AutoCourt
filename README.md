@@ -40,7 +40,10 @@ hashes in an on-chain manifest. Everything downstream is consensus:
 - **Evidence is corroborated where it enters the record.** Uploaded text
   arrives as calldata with its hash recomputed at entry by every
   validator; anchor pages are fetched by every validator itself. No
-  leader-private byte exists anywhere.
+  leader-private byte exists anywhere. The anchor lane is reachable from
+  the app — "Add an independent source" — and it is the only path to
+  `VERIFIED`, so the strongest verdict in the system is earnable by using
+  the product, not only by running a script.
 - **Uploaders attest to their own bytes.** The wallet that uploads a
   document signs its text hash, and the signature lands on the public
   record beside the hash it covers. Anyone can verify forever that these
@@ -109,6 +112,27 @@ deploys before anything canonical existed
   the decision cut, the rerun finalized `MAJORITY_AGREE` deriving exactly
   what the deterministic spec predicts. Both transactions are in the
   report; five direct tests pin both directions.
+
+## The independent source, through the app
+
+`submit_anchor_item` is the only lane where the contract fetches, and the
+only path to `VERIFIED`. Driven from the product by
+[`scripts/anchor-app-demo.mjs`](scripts/anchor-app-demo.mjs) — sign in,
+name a source, let the queue carry it:
+
+| step | result |
+|---|---|
+| a party-controlled source | refused: `seller-controlled.example.com is not an allowlisted independent source` |
+| an allowlisted source | accepted, then **EXTRACTED** — every validator fetched it and agreed |
+
+`ac-000006` · tx `0x3fa2050b6b76f88a466cf89ddecf4c02e907139dccf685442e88c863973558f9`
+· file hash `5ba90856…9b32e` (what the app committed) · text hash
+`5375d6df…39000` (what the contract normalized and stored)
+
+The packet cannot be sealed while an anchor is still entering: until
+every validator has agreed on the bytes they fetched, its real hashes are
+unknown, and a manifest sealed now would cover a hash the app merely
+guessed. The submit gate says exactly that rather than failing later.
 
 ## The identity check, live
 
