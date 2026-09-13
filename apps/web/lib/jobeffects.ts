@@ -58,6 +58,17 @@ export async function recordJobEffects(
   chainClient: AutoCourtChain,
 ): Promise<EffectsResult> {
   const result: EffectsResult = { linked: 0, runsRecorded: 0, failuresRecorded: 0 };
+  // One unrecordable row must never abort the pass. Effects are
+  // best-effort bookkeeping over state the chain already holds; throwing
+  // out of here stopped the drain for every assessment at once, which is
+  // how a single id collision froze the whole queue.
+  const attempt = async (what: string, fn: () => Promise<void>) => {
+    try {
+      await fn();
+    } catch (e) {
+      console.error(`[effects] ${what}:`, (e as Error)?.message ?? e);
+    }
+  };
 
   // 1. CREATE jobs that finished: link the on-chain id, then inject it
   //    into every later job payload for this assessment.
@@ -77,6 +88,7 @@ export async function recordJobEffects(
       job.assessment.vehicle.seller.walletAddress,
     );
     if (!onChainId) continue;
+    await attempt(`link ${onChainId}`, async () => {
     // Cache what the registry told every validator at creation. The chain
     // copy decides; this is the index the screens read.
     let identityStatus = "";
@@ -98,6 +110,7 @@ export async function recordJobEffects(
       },
     });
     result.linked += 1;
+    });
   }
 
   // 2. Every PENDING job on a linked assessment gets the on-chain id in

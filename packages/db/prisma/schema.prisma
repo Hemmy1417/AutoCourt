@@ -117,7 +117,12 @@ model Assessment {
   jobs          Job[]
   buyerAccess   BuyerAccess[]
 
-  @@unique([onChainId])
+  // An on-chain id is unique PER CONTRACT, not globally: a redeploy
+  // restarts the numbering, so ac-000007 can exist on two deployments as
+  // two unrelated records. Making the id alone unique meant a legitimate
+  // new record could not be linked at all — the write threw and took the
+  // whole drain pass with it.
+  @@unique([contractAddress, onChainId])
   @@index([vehicleId])
 }
 
