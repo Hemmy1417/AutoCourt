@@ -1,0 +1,11 @@
+NATIONAL VEHICLE REGISTRY EXTRACT (DEMO FIXTURE)
+VIN 1M8GDM9AXKP042788
+Registered vehicle: 2019 Meridian GT Wagon
+Registered mileage reading 87,401 miles recorded 2026-02-10 at periodic inspection.
+No accident flag on file for this vehicle.
+No outstanding finance recorded against this vehicle.
+Status: registered, roadworthy certificate current.
+
+This file is a committed demo fixture standing in for a vehicle registry;
+the AutoCourt anchor lane fetches it from its commit-pinned public URL, and
+every validator fetches it independently before the item enters the record.
