@@ -37,6 +37,17 @@ type JobRow = {
   txHash: string | null;
 };
 
+/** Every kind except CREATE addresses the on-chain record. */
+const NEEDS_ON_CHAIN_ID = new Set([
+  "SUBMIT_EVIDENCE",
+  "SUBMIT_ANCHOR",
+  "RECORD_DISPUTE",
+  "SEAL",
+  "SUBMIT_APPEAL_EVIDENCE",
+  "ADJUDICATE",
+  "READJUDICATE",
+]);
+
 function writeFor(chain: AutoCourtChain, job: JobRow) {
   const p = JSON.parse(job.payloadJson || "{}");
   switch (job.kind) {
@@ -140,8 +151,37 @@ export async function runPendingJobs(deps: WorkerDeps): Promise<DrainResult> {
       data: { lockedUntil: new Date(now.getTime() + LEASE_MS) },
     });
     if (leased.count === 0) continue; // someone else took it
-    result.drained += 1;
     const job = candidate as unknown as JobRow;
+
+    // A job that addresses the record must know its on-chain id. Jobs
+    // enqueued alongside CREATE lack it until the CREATE effect links
+    // the assessment — resolve it from the row at drain time, and if it
+    // is still unknown, release the lease and wait for the next pass
+    // rather than submitting a write the contract can only crash on.
+    if (NEEDS_ON_CHAIN_ID.has(job.kind)) {
+      const payload = JSON.parse(job.payloadJson || "{}");
+      if (!payload.onChainId) {
+        const assessment = await prisma.assessment.findUnique({
+          where: { id: job.assessmentId },
+          select: { onChainId: true },
+        });
+        if (!assessment?.onChainId) {
+          await prisma.job.update({
+            where: { id: job.id },
+            data: { lockedUntil: null },
+          });
+          result.stillPending += 1;
+          continue;
+        }
+        payload.onChainId = assessment.onChainId;
+        job.payloadJson = JSON.stringify(payload);
+        await prisma.job.update({
+          where: { id: job.id },
+          data: { payloadJson: job.payloadJson },
+        });
+      }
+    }
+    result.drained += 1;
 
     try {
       let txHash = job.txHash;

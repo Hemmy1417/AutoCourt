@@ -2,11 +2,23 @@ import { defineConfig } from "@playwright/test";
 
 /**
  * The seller-to-buyer journey against a real server + real Postgres
- * (CI's service container; any DATABASE_URL locally). The chain boundary
- * is the job queue: the journey asserts everything up to and including
- * the enqueue, and the live arc (scripts/arc.mjs) proves the chain half
- * on the deployment of record.
+ * (CI's service container; the embedded cluster's `autocourt_e2e`
+ * database locally — ISOLATED from the dev book on purpose: the local
+ * dev-drain loop ships the dev database's job queue to the live chain,
+ * and journey fixtures must never ride it). The chain boundary is the
+ * job queue: the journey asserts everything up to and including the
+ * enqueue; scripts/arc.mjs proves the chain half on the deployment of
+ * record, and the drain pipeline is proven by the seam pass in
+ * docs/PROBE-REPORT.md.
+ *
+ * Local run:  npx playwright test        (defaults to autocourt_e2e@5455)
+ * CI run:     DATABASE_URL points at the service container.
  */
+const E2E_DATABASE_URL =
+  process.env.E2E_DATABASE_URL ??
+  process.env.DATABASE_URL ??
+  "postgresql://autocourt:autocourt_dev@localhost:5455/autocourt_e2e";
+
 export default defineConfig({
   testDir: "tests/e2e",
   timeout: 90_000,
@@ -21,9 +33,7 @@ export default defineConfig({
     timeout: 120_000,
     env: {
       SESSION_SECRET: process.env.SESSION_SECRET ?? "e2e-secret-0123456789",
-      DATABASE_URL:
-        process.env.DATABASE_URL ??
-        "postgresql://autocourt:autocourt_dev@localhost:5432/autocourt",
+      DATABASE_URL: E2E_DATABASE_URL,
       EVIDENCE_ROOT: "var/e2e-evidence",
       NODE_ENV: "production",
     },

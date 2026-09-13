@@ -129,3 +129,38 @@ The deployment of record is
 sha256 `3aef79ec…f0d8`); `0xE9d81837…C6a9` is recorded here as
 superseded, its two clean acts and its diagnosing appeal round intact on
 the explorer.
+
+
+## The seam pass (the pipeline bug only a running stack could catch)
+
+With the browser journey green on an isolated database, the same flow was
+driven through the API on the LIVE stack — server, Postgres, and the
+drain loop against the deployment of record — and the first attempt
+crashed on-chain: evidence writes arrived with `assessment_id: None`,
+dying inside TreeMap lookup (`TypeError: '<' not supported between
+'NoneType' and 'str'`, decoded from the leader receipt). The cause was
+sequencing: the drain ran CREATE and its dependent jobs in one pass, but
+the on-chain id was injected into payloads only AFTER the pass. The fix
+is structural — a job that addresses the record resolves its on-chain id
+from the assessment row at drain time, and if it is still unknown,
+releases its lease and waits for the next pass rather than submitting a
+write the contract can only crash on. (The same receipts also showed the
+refusal-sentence decoder had to read `leader_receipt.result` — the arc's
+lesson, swept into `packages/genlayer-client` the same day.)
+
+Rerun after the fix, `scripts/seam-pass.mjs`: two fresh wallets signed in
+over EIP-191, listed, uploaded, disputed, consented and submitted through
+the exact API the browser drives — then the drain carried every write:
+
+| write | tx |
+|---|---|
+| create → `ac-000006` | `0x919ac419fc7bfebabb70fcadad11cbee308037db32e4abffd648db97db71e96a` |
+| seller invoice | `0x0814e534831edb9d404f896e34c8c140400e816166618ab9cf6ee244b32ff1cd` |
+| buyer history | `0x701a111d3874a952aa3d2b188789c0d5117d19eb21aaba60e9e20c13ee6178f1` |
+| buyer dispute | `0x4ad284aab4cbeb64f98d4d3effdaa4334891f6e08219315bd514422214634939` |
+| seal | `0x07d71766be2006800b97ca5872191b696259a11d9d7b6810b35f6439f67c46f3` |
+
+Every job DONE, and the intake receipt confirmed the party's item inside
+the on-chain manifest. `ac-000006` sits SEALED on the record — a record
+created by the app's own pipeline, not by a test script talking to the
+contract directly.

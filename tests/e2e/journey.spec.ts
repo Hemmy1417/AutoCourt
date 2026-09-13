@@ -11,16 +11,15 @@
 
 import { expect, test, type Page } from "@playwright/test";
 import { privateKeyToAccount } from "viem/accounts";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
 const SELLER_PK =
   "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
 const BUYER_PK =
   "0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba";
 
-const invoicePath = fileURLToPath(new URL("fixtures/invoice.txt", import.meta.url));
-const historyPath = fileURLToPath(new URL("fixtures/history.txt", import.meta.url));
+const invoicePath = join(__dirname, "fixtures", "invoice.txt");
+const historyPath = join(__dirname, "fixtures", "history.txt");
 
 async function connectWallet(page: Page, pk: `0x${string}`, name: string) {
   const account = privateKeyToAccount(pk);
@@ -43,7 +42,11 @@ async function connectWallet(page: Page, pk: `0x${string}`, name: string) {
   }, account.address);
   await page.goto("/auth");
   await page.getByPlaceholder("Alex N.").fill(name);
-  await page.getByRole("button", { name: /connect wallet/i }).click();
+  // EIP-6963 discovery names the button after the wallet ("Connect
+  // Browser wallet & sign in" for the legacy-injected stub).
+  await page
+    .getByRole("button", { name: /connect .*sign in|sign in with/i })
+    .click();
   await page.waitForURL("**/dashboard");
   return account.address.toLowerCase();
 }
@@ -63,9 +66,9 @@ test("the seller-to-buyer journey holds end to end", async ({ browser }) => {
   await seller.getByRole("button", { name: "Add claim" }).click();
   const selects = seller.locator("select");
   await selects.nth(1).selectOption("ACCIDENT_HISTORY");
+  // Selecting the type sets that row's placeholder to its example text.
   await seller
-    .locator('input[placeholder="minor oil seep at valve cover, disclosed"], input[placeholder="excellent; no rust; original paint"]')
-    .last()
+    .getByPlaceholder("no recorded accidents")
     .fill("no recorded accidents");
   await seller.getByRole("button", { name: "Open the assessment" }).click();
   await seller.waitForURL("**/assessments/**");
@@ -89,8 +92,10 @@ test("the seller-to-buyer journey holds end to end", async ({ browser }) => {
   await expect(seller.getByText(/card ending 4417/)).toBeVisible();
 
   // Typed rows: the reading the contract recomputes conflicts from.
+  // Two date inputs exist on this screen (the typed row's, then the
+  // upload form's "Document date") — the row's comes first in the DOM.
   await seller.getByRole("button", { name: /Diagnostics/ }).click();
-  await seller.locator('input[type="date"]').last().fill("2026-03-07");
+  await seller.locator('input[type="date"]').first().fill("2026-03-07");
   await seller.getByPlaceholder("odometer").fill("87432");
   await seller.getByPlaceholder("where in the document").fill("odometer line");
   await seller.getByRole("button", { name: "Save typed rows" }).click();
@@ -119,7 +124,9 @@ test("the seller-to-buyer journey holds end to end", async ({ browser }) => {
   await connectWallet(buyer, BUYER_PK, "Bode the buyer");
   await buyer.goto(sharePath);
   await buyer.waitForURL("**/assessments/**");
-  await expect(buyer.getByText("shared with you").first()).toBeVisible();
+  // The Dispute control renders only for the buyer role — its presence
+  // IS the proof that redeeming the link granted buyer access.
+  await expect(buyer.getByRole("button", { name: "Dispute…" })).toBeVisible();
 
   await buyer.getByRole("button", { name: "Dispute…" }).click();
   await buyer.getByRole("checkbox").last().check();
@@ -141,12 +148,24 @@ test("the seller-to-buyer journey holds end to end", async ({ browser }) => {
   await seller.reload();
   await seller.getByRole("button", { name: "Submit for adjudication" }).click();
   await expect(seller.getByText("SUBMITTED").first()).toBeVisible();
-  // Evidence upload is now closed, with the reason in words (S40).
-  await expect(seller.getByText(/sealed while adjudication/)).toBeVisible();
+  // Evidence upload is now closed, with the reason in words (S40): the
+  // processing panel replaces the upload sections and says why.
+  await expect(seller.getByText(/sealed under its manifest root/)).toBeVisible();
 
   // Revocation: the link dies with 410, and says what that does NOT undo.
+  // Revoke every active link the seller holds (reruns on a dirty local
+  // database leave older ones; in CI there is exactly one) — this run's
+  // link is among them, which is what the 410 below proves.
   await seller.goto("/settings");
-  await seller.getByRole("button", { name: "Revoke" }).click();
+  const revokeButtons = seller.getByRole("button", { name: "Revoke" });
+  // The list loads asynchronously — wait for it, or count() reads 0 off
+  // the loading state and the loop never clicks. This run's link
+  // guarantees at least one ACTIVE row exists.
+  await expect(revokeButtons.first()).toBeVisible();
+  while ((await revokeButtons.count()) > 0) {
+    await revokeButtons.first().click();
+    await seller.waitForTimeout(400);
+  }
   await expect(seller.getByText(/revoked/).first()).toBeVisible();
   const strangerCtx = await browser.newContext();
   const stranger = await strangerCtx.newPage();

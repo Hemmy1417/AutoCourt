@@ -1,0 +1,4 @@
+{
+  "//": "Playwright compiles specs to CommonJS; the monorepo root is type:module, so this directory opts back out or Node refuses the compiled output.",
+  "type": "commonjs"
+}

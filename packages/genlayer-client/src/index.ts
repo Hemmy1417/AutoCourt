@@ -129,9 +129,27 @@ export class AutoCourtChain {
       leaderResult: leader?.execution_result,
     };
     if (leader?.execution_result && leader.execution_result !== "SUCCESS") {
-      const stderr = String(leader?.genvm_result?.stderr ?? "");
-      const m = stderr.match(/\[(EXPECTED|EXTERNAL|TRANSIENT|LLM_ERROR)\][^\n"]*/);
-      if (m) out.refusalText = m[0];
+      // The contract's refusal sentence lives in leader_receipt.result:
+      // base64 whose decoded bytes are a control byte + the printable
+      // UserError text. On this network `result` IS the base64 string
+      // (older shapes wrap it as {payload}); stderr stays as a fallback.
+      const r = leader?.result;
+      const rawPayload = typeof r === "string" ? r : r?.payload;
+      const RE = /\[(EXPECTED|EXTERNAL|TRANSIENT|LLM_ERROR)\][^\n"]*/;
+      if (typeof rawPayload === "string") {
+        try {
+          const decoded = Buffer.from(rawPayload, "base64").toString("utf-8");
+          const m = decoded.match(RE);
+          if (m) out.refusalText = m[0];
+        } catch {
+          // fall through to stderr
+        }
+      }
+      if (!out.refusalText) {
+        const stderr = String(leader?.genvm_result?.stderr ?? "");
+        const m = stderr.match(RE);
+        if (m) out.refusalText = m[0];
+      }
     }
     return out;
   }

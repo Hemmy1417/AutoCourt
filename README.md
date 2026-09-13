@@ -211,6 +211,8 @@ one global.
 |---|---|---|
 | `pytest tests/direct` | 110 | the whole contract against a runtime-strict stub: floors, walls, appeals, forged-leader replays (a fabricated-but-consistent dossier is refused because its quotes do not ground), and every equivalence lesson pinned in both directions — decision cut, sufficiency materiality, citation materiality, explanation shadings |
 | `npx vitest run` | 48 | VIN/OBD-II/mileage code, evidence pipeline honesty, the packet builder (with a golden pinning TS `manifestRoot` byte-equal to the contract's), S40 act availability as a pure function |
+| `npx playwright test` | 1 journey | the complete seller-to-buyer path in a real browser against a real server and Postgres: two wallets sign in with real EIP-191 signatures, list → upload (fixture bytes) → typed rows → the consent gate refusing an unconsented packet → share → buyer disputes and counters → submit → the revoked link answers with its reason. Runs on an isolated database so its fixtures never ride the local drain onto the chain |
+| `node scripts/seam-pass.mjs` | live | the app→chain seam: the same API the browser drives, then the drain loop carrying every queued write to the deployment of record — on-chain id linked, evidence landed, dispute recorded, sealed, and the intake receipt confirming every item inside the on-chain manifest |
 | `genvm-lint` | clean | AST-level GenVM validity |
 
 ## The docs
