@@ -72,6 +72,27 @@ MAX_ACCOUNT_CHARS = 64
 MAX_GROUNDS_CHARS = 1_200
 MAX_FIELD_CHARS = 60             # vehicle make/model fields
 MAX_UNRESOLVED_CHARS = 400       # per-claim panel prose, boundary-capped
+MAX_SIGNATURE_CHARS = 200        # 0x + 130 hex, with margin
+
+# ── the identity registry ────────────────────────────────────────────────────
+#
+# The one fact about a listing that neither party supplies: what the VIN
+# itself decodes to, read from a public federal registry by EVERY
+# validator independently. It runs on every assessment at creation, so
+# the record's most basic claim — that this is the vehicle the seller
+# says it is — never rests on the seller's word or the operator's.
+REGISTRY_NAME = "NHTSA vPIC (US DOT)"
+REGISTRY_HOST = "vpic.nhtsa.dot.gov"
+REGISTRY_URL = ("https://vpic.nhtsa.dot.gov/api/vehicles/decodevinvalues/"
+                "{vin}?format=json")
+# Only the stable identity fields enter consensus; the decode carries 150+
+# fields, most of them empty or incidental.
+REGISTRY_FIELDS = ("Make", "Model", "ModelYear", "BodyClass",
+                   "PlantCountry", "VehicleType", "ErrorCode")
+REGISTRY_FETCH_CAP = 20_000
+
+IDENTITY_STATUSES = ("CONFIRMED", "MISMATCH", "UNDECODABLE",
+                     "SOURCE_UNAVAILABLE")
 
 # Mileage arithmetic is integer-only. Distances are compared in miles;
 # kilometre readings convert via floor(km * 621371 / 1e6). The tolerance
@@ -131,7 +152,7 @@ ROLLUP_ORDER = ("POSSIBLE_ODOMETER_ROLLBACK", "MILEAGE_CONFLICT",
                 "INSUFFICIENT_EVIDENCE", "VERIFIED", "PARTIALLY_VERIFIED",
                 "INCONCLUSIVE")
 
-RULESET_VERSION = "autocourt-rules-1"
+RULESET_VERSION = "autocourt-rules-2"
 
 
 # ── deterministic helpers ────────────────────────────────────────────────────
@@ -204,6 +225,60 @@ def _vin_check_digit_ok(vin: str) -> bool:
     rem = total % 11
     expected = "X" if rem == 10 else str(rem)
     return vin[8] == expected
+
+
+def _reg_tokens(s) -> list:
+    """Uppercase alphanumeric word tokens: 'MERCEDES-BENZ' → [MERCEDES, BENZ]."""
+    out = []
+    cur = []
+    for ch in str(s).upper():
+        if ch.isalnum():
+            cur.append(ch)
+        elif cur:
+            out.append("".join(cur))
+            cur = []
+    if cur:
+        out.append("".join(cur))
+    return out
+
+
+def _make_agrees(declared: str, registry: str) -> bool:
+    """Deliberately forgiving: manufacturer names are written many ways,
+    and a FALSE mismatch would accuse an honest seller. Agreement means
+    the leading token matches, or one name's tokens are contained in the
+    other's ('Mercedes' inside 'MERCEDES-BENZ'). Abbreviations the
+    registry does not share ('VW' vs 'VOLKSWAGEN') read as a mismatch —
+    a stated limitation, and the reason a mismatch caps a claim rather
+    than accusing anyone of fraud."""
+    d = _reg_tokens(declared)
+    r = _reg_tokens(registry)
+    if not d or not r:
+        return False
+    if d[0] == r[0]:
+        return True
+    ds, rs = set(d), set(r)
+    return ds.issubset(rs) or rs.issubset(ds)
+
+
+def _identity_status(declared_make: str, declared_year: int,
+                     registry: dict) -> str:
+    """CONFIRMED / MISMATCH / UNDECODABLE — derived in code from what the
+    registry itself returned. Year is compared exactly (it is unambiguous);
+    make is compared forgivingly (it is not)."""
+    if not isinstance(registry, dict) or not registry.get("reachable"):
+        return "SOURCE_UNAVAILABLE"
+    fields = registry.get("fields") or {}
+    if str(fields.get("ErrorCode", "")).split(",")[0].strip() != "0":
+        return "UNDECODABLE"
+    reg_make = str(fields.get("Make", "")).strip()
+    reg_year = _as_int(fields.get("ModelYear"), 0)
+    if not reg_make or reg_year <= 0:
+        return "UNDECODABLE"
+    if reg_year != int(declared_year):
+        return "MISMATCH"
+    if not _make_agrees(declared_make, reg_make):
+        return "MISMATCH"
+    return "CONFIRMED"
 
 
 def _vin_candidates_in(text: str) -> list:
@@ -612,6 +687,12 @@ def _derive_flags(conflicts: list, explanations: dict, diagnostic: dict,
 def _derive_rollup(claim_results: list, flags: dict,
                    inspection_required: bool) -> str:
     verdicts = [c["verdict"] for c in claim_results]
+    # Identity first: if the VIN does not decode to the vehicle the seller
+    # describes, no paperwork about "the vehicle" means much yet. This is
+    # the one adverse fact on the record that no party supplied — every
+    # validator read it from the registry itself.
+    if flags.get("vehicle_identity_mismatch"):
+        return "MATERIAL_CONCERN"
     if flags["odometer_rollback_indicated"]:
         return "POSSIBLE_ODOMETER_ROLLBACK"
     if flags["mileage_conflict"]:
@@ -637,13 +718,18 @@ def _derive_rollup(claim_results: list, flags: dict,
 def _derive_report(claims: list, findings_by_claim: dict, items: list,
                    seller_account: str, dispute_stakes: list,
                    conflicts: list, explanations: dict,
-                   diagnostic: dict) -> dict:
+                   diagnostic: dict, identity_status: str = "") -> dict:
     """The whole deterministic derivation, one call — identical inside every
     validator, and directly testable without a chain.
 
     dispute_stakes: [{account, claim_ids}] — the recorded opposing stakes;
     an account's against-interest credit is scoped to the claims it
-    actually disputes."""
+    actually disputes.
+
+    identity_status: what the public VIN registry said at creation, read
+    by every validator itself. A MISMATCH caps every claim below VERIFIED
+    — evidence about a vehicle cannot certify a listing that may describe
+    a different one — and takes the headline."""
     items_by_id = {it["evidence_id"]: it for it in items}
     disputers_by_claim = {}
     for d in dispute_stakes:
@@ -659,6 +745,19 @@ def _derive_report(claims: list, findings_by_claim: dict, items: list,
             items_by_id, seller_account,
             disputers_by_claim.get(claim["claim_id"], set())))
     flags = _derive_flags(conflicts, explanations, diagnostic, items_by_id)
+    flags["vehicle_identity_mismatch"] = identity_status == "MISMATCH"
+
+    # The identity cap. VERIFIED asserts a claim about THIS vehicle; a
+    # registry that decodes the VIN to something else withdraws that
+    # footing from every claim at once, whatever the documents say.
+    if flags["vehicle_identity_mismatch"]:
+        for c in claim_results:
+            if c["verdict"] == "VERIFIED":
+                c["verdict"] = "PARTIALLY_VERIFIED"
+                c["next_action"] = "RECONCILE_VEHICLE_IDENTITY"
+            if c["confidence"] == "HIGH":
+                c["confidence"] = "MEDIUM"
+
     inspection = (flags["diagnostic_safety_critical"]
                   or any(c["verdict"] == "PHYSICAL_INSPECTION_REQUIRED"
                          for c in claim_results))
@@ -667,7 +766,9 @@ def _derive_report(claims: list, findings_by_claim: dict, items: list,
         "claims": claim_results,
         "flags": {k: flags[k] for k in
                   ("mileage_conflict", "odometer_rollback_indicated",
-                   "diagnostic_concern_supported")},
+                   "diagnostic_concern_supported",
+                   "vehicle_identity_mismatch")},
+        "identity_status": identity_status,
         "inspection_required": inspection,
         "rollup": rollup,
         "ruleset": RULESET_VERSION,
@@ -790,10 +891,71 @@ class AutoCourtAssessment(gl.contract.Contract):
 
     # ── writes: building the record ──────────────────────────────────────────
 
+    def _registry_identity(self, vin: str) -> dict:
+        """Read the VIN from the public federal registry — EVERY validator
+        fetching it itself, agreeing on the identity fields it extracted.
+
+        This is the only fact on an AutoCourt record that no party
+        supplied: not the seller, not the buyer, not the operator. It runs
+        at creation, so it is on every assessment rather than only the ones
+        someone chose to corroborate. All nodes agreeing the source is
+        unreachable records SOURCE_UNAVAILABLE and never an accusation; a
+        reachability split changes nothing (the round is refused and the
+        seller retries)."""
+        url = REGISTRY_URL.format(vin=vin)
+
+        def decode() -> dict:
+            try:
+                raw = gl.nondet.web.render(url, mode="text")
+                body = str(raw or "")[:REGISTRY_FETCH_CAP]
+            except Exception:
+                return {"reachable": False, "fields": {}}
+            if not body.strip():
+                return {"reachable": False, "fields": {}}
+            try:
+                first, last = body.find("{"), body.rfind("}")
+                parsed = json.loads(body[first:last + 1])
+                row = (parsed.get("Results") or [{}])[0]
+            except Exception:
+                # Reached, but not the document this contract expects. An
+                # unparseable answer is not evidence about the vehicle.
+                return {"reachable": True, "fields": {}}
+            fields = {}
+            for key in REGISTRY_FIELDS:
+                fields[key] = str(row.get(key, ""))[:MAX_FIELD_CHARS]
+            return {"reachable": True, "fields": fields}
+
+        def validator_fn(leaders_res) -> bool:
+            if not isinstance(leaders_res, gl.vm.Return):
+                return False
+            theirs = leaders_res.calldata
+            if not isinstance(theirs, dict):
+                return False
+            mine = decode()
+            if bool(mine["reachable"]) != bool(theirs.get("reachable")):
+                print("[DISAGREE] registry reachability — mine "
+                      f"{mine['reachable']} vs leader {theirs.get('reachable')}")
+                return False
+            if not mine["reachable"]:
+                return True
+            # This validator binds the stored identity to bytes IT fetched.
+            if _canonical(mine["fields"]) != _canonical(theirs.get("fields")):
+                print("[DISAGREE] registry identity fields\n  mine:   "
+                      f"{_canonical(mine['fields'])}\n  leader: "
+                      f"{_canonical(theirs.get('fields'))}")
+                return False
+            return True
+
+        out = gl.vm.run_nondet(decode, validator_fn)
+        if not isinstance(out, dict):
+            return {"reachable": False, "fields": {}}
+        return out
+
     @gl.public.write
     def create_assessment(self, vehicle_json: str, claims_json: str) -> str:
-        """The seller of record opens an assessment: vehicle facts
-        (VIN code-validated) and the claim set with declared values."""
+        """The seller of record opens an assessment: vehicle facts (VIN
+        code-validated, then decoded against the public registry by every
+        validator) and the claim set with declared values."""
         try:
             vehicle = json.loads(vehicle_json)
             claims_in = json.loads(claims_json)
@@ -843,6 +1005,10 @@ class AutoCourtAssessment(gl.contract.Contract):
             claims.append({"claim_id": claim_id, "type": ctype,
                            "declared_value": value})
 
+        # Every validator decodes the VIN itself before the record exists.
+        registry = self._registry_identity(vin)
+        identity_status = _identity_status(make, year, registry)
+
         n = self._bump("assessments")
         assessment_id = f"ac-{n:06d}"
         a = {
@@ -850,6 +1016,9 @@ class AutoCourtAssessment(gl.contract.Contract):
             "state": "OPEN",
             "vin": vin,
             "vin_check_digit_ok": _vin_check_digit_ok(vin),
+            "identity_status": identity_status,
+            "registry_source": REGISTRY_NAME,
+            "registry_fields": registry.get("fields") or {},
             "make": make, "model": model, "year": year,
             "seller_account": seller_account,
             "seller_address": self._sender(),
@@ -920,6 +1089,26 @@ class AutoCourtAssessment(gl.contract.Contract):
                 raise gl.vm.UserError(
                     f"{ERROR_EXPECTED} an UNEXTRACTED item carries no text")
 
+        # THE UPLOADER'S OWN ATTESTATION. The wallet that uploaded this
+        # item signs its text hash, and the signature lands on the public
+        # record beside the hash it covers. The contract cannot recover a
+        # secp256k1 address, and does not need to: because the record is
+        # public, ANYONE can check forever that these bytes are the ones
+        # that account signed. That is what makes intake attributable
+        # rather than merely tamper-evident — the operator assembles the
+        # packet, but cannot substitute a document for one a party signed.
+        # Unsigned items are accepted and RECORDED AS UNSIGNED; refusing
+        # them would trade an honest gap for a hidden one.
+        signature = str(it.get("uploader_signature", "")).strip()
+        if signature:
+            body = signature[2:] if signature.startswith("0x") else signature
+            if (len(signature) > MAX_SIGNATURE_CHARS
+                    or not signature.startswith("0x")
+                    or not all(c in "0123456789abcdefABCDEF" for c in body)):
+                raise gl.vm.UserError(
+                    f"{ERROR_EXPECTED} uploader_signature must be 0x-prefixed "
+                    f"hex of at most {MAX_SIGNATURE_CHARS} characters")
+
         obs_in = it.get("observations", [])
         if not isinstance(obs_in, list) or len(obs_in) > MAX_OBS_ROWS_PER_ITEM:
             raise gl.vm.UserError(
@@ -970,6 +1159,7 @@ class AutoCourtAssessment(gl.contract.Contract):
             "observations": observations,
             "diagnostic_codes": diag,
             "capture_date": str(it.get("capture_date", ""))[:10],
+            "uploader_signature": signature,
         }
 
     @gl.public.write
@@ -1281,6 +1471,34 @@ class AutoCourtAssessment(gl.contract.Contract):
         vin_cd_ok = bool(a["vin_check_digit_ok"])
         vehicle_line = f"{a['year']} {_defang(a['make'])} {_defang(a['model'])}"
         grounds = _defang(appeal["grounds"]) if appeal is not None else ""
+        identity_status = str(a.get("identity_status", "SOURCE_UNAVAILABLE"))
+        reg_fields = a.get("registry_fields") or {}
+        if identity_status == "CONFIRMED":
+            identity_line = (
+                f"the VIN decodes at {REGISTRY_NAME} to "
+                f"{_defang(reg_fields.get('ModelYear', ''))} "
+                f"{_defang(reg_fields.get('Make', ''))} "
+                f"{_defang(reg_fields.get('Model', ''))} "
+                f"({_defang(reg_fields.get('BodyClass', ''))}) — consistent "
+                "with the listing")
+        elif identity_status == "MISMATCH":
+            identity_line = (
+                f"THE VIN DOES NOT DECODE TO THE LISTED VEHICLE. "
+                f"{REGISTRY_NAME} reads this VIN as "
+                f"{_defang(reg_fields.get('ModelYear', ''))} "
+                f"{_defang(reg_fields.get('Make', ''))} "
+                f"{_defang(reg_fields.get('Model', ''))} "
+                f"({_defang(reg_fields.get('BodyClass', ''))}), while the "
+                f"listing describes a {vehicle_line}. Weigh every document "
+                "against the possibility that it describes a different "
+                "vehicle")
+        elif identity_status == "UNDECODABLE":
+            identity_line = (f"{REGISTRY_NAME} could not decode this VIN — "
+                             "no identity confirmation either way")
+        else:
+            identity_line = (f"{REGISTRY_NAME} was unreachable when the "
+                             "record opened — absence of confirmation is "
+                             "not evidence against anyone")
 
         all_obs = []
         for it in judged_items:
@@ -1374,6 +1592,7 @@ Evidence not marked NEW is exactly what the prior panel read — the bytes are t
 
 THE VEHICLE (facts the contract validated in code):
 - {vehicle_line}, VIN {vin} (format valid; ISO 3779 check digit {"consistent" if vin_cd_ok else "NOT consistent — common for genuine non-North-American VINs, a fact, not a verdict"})
+- INDEPENDENT IDENTITY CHECK, fetched from the public registry by every validator itself and supplied by no party: {identity_line}
 
 THE SELLER'S CLAIMS (each declared value is the seller's assertion):
 {claim_lines}
@@ -1453,7 +1672,7 @@ Respond ONLY with JSON:
             report = _derive_report(
                 claims_for_derive, findings_by_claim, item_meta,
                 seller_account, dispute_stakes, conflicts, explanations,
-                diagnostic)
+                diagnostic, identity_status)
             return {
                 "report": report,
                 "findings": findings_by_claim,
@@ -1525,7 +1744,8 @@ Respond ONLY with JSON:
                     for c in claims]
                 re_report = _derive_report(
                     re_claims, t_findings, item_meta, seller_account,
-                    dispute_stakes, conflicts, t_expl, t_diag)
+                    dispute_stakes, conflicts, t_expl, t_diag,
+                    identity_status)
             except Exception as e:
                 print(f"[DISAGREE] leader findings do not re-derive: {e}")
                 return False
@@ -1620,7 +1840,7 @@ Respond ONLY with JSON:
                         "declared_class", "declared_label",
                         "uploader_account", "uploader_role", "file_sha256",
                         "text_sha256", "extractor_version",
-                        "judged_version")}
+                        "uploader_signature", "judged_version")}
                       for it in items]
         a["disputes"] = self._disputes_of(assessment_id)
         return _canonical(a)
@@ -1708,6 +1928,10 @@ Respond ONLY with JSON:
             "max_disputing_accounts": MAX_DISPUTING_ACCOUNTS,
             "anchor_fetch_cap": ANCHOR_FETCH_CAP,
             "anchor_allowlist": [str(h) for h in self.anchor_allowlist],
+            "identity_registry": REGISTRY_NAME,
+            "identity_registry_host": REGISTRY_HOST,
+            "identity_statuses": list(IDENTITY_STATUSES),
+            "max_signature_chars": MAX_SIGNATURE_CHARS,
             "mileage_tolerance_bps": MILEAGE_TOLERANCE_BPS,
             "mileage_tolerance_floor_mi": MILEAGE_TOLERANCE_FLOOR_MI,
             "claim_types": list(CLAIM_TYPES),

@@ -60,6 +60,13 @@ HIST_TEXT = ("VEHICLE HISTORY RECORD. No accident records found for this "
              "vehicle. Odometer reported 86,900 miles on 2026-01-15. Two "
              "previous owners on record.")
 
+# The public VIN registry the contract decodes at creation. Tests set the
+# answer; by default the demo VIN decodes consistently with the listing.
+def registry_url(vin=None):
+    return ("https://vpic.nhtsa.dot.gov/api/vehicles/decodevinvalues/"
+            f"{vin or VIN}?format=json")
+
+
 _PAGES = {}
 _ONCE = {}
 _DEAD = set()
@@ -69,6 +76,7 @@ _PANEL_CALLS = [0]
 _PROMPTS = []
 _FORGED = []
 _DOWNGRADES = []
+_DISAGREEMENTS = []
 
 
 class _UserError(Exception):
@@ -232,6 +240,10 @@ def _print_hook(*args, **kwargs):
     line = " ".join(str(a) for a in args)
     if "[DOWNGRADE]" in line:
         _DOWNGRADES.append(line)
+    if "[DISAGREE]" in line:
+        # The contract prints the reason at every refusal point; a test
+        # that cannot read them debugs a split by guesswork.
+        _DISAGREEMENTS.append(line)
 
 
 def _install():
@@ -308,7 +320,9 @@ def _reset():
     _PROMPTS.clear()
     _FORGED.clear()
     _DOWNGRADES.clear()
+    _DISAGREEMENTS.clear()
     page(REG_URL, REG_PAGE)
+    registry_says()
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -323,6 +337,23 @@ def err(module):
 
 def page(url, text):
     _PAGES[url] = text
+
+
+def registry_says(make="MERIDIAN", model="GT Wagon", year="2019",
+                  body_class="Wagon", plant="UNITED STATES (USA)",
+                  vehicle_type="PASSENGER CAR", error_code="0", vin=None):
+    """Register the federal registry's answer for a VIN. Defaults decode
+    the demo VIN consistently with the demo listing (CONFIRMED)."""
+    page(registry_url(vin), json.dumps({"Count": 1, "Results": [{
+        "Make": make, "Model": model, "ModelYear": year,
+        "BodyClass": body_class, "PlantCountry": plant,
+        "VehicleType": vehicle_type, "ErrorCode": error_code,
+        "Note": "incidental field outside consensus",
+    }]}))
+
+
+def registry_unreachable(vin=None):
+    _PAGES.pop(registry_url(vin), None)
 
 
 def page_once(url, text, serves=1):
@@ -349,6 +380,11 @@ def prompts():
 
 def downgrades():
     return list(_DOWNGRADES)
+
+
+def disagreements():
+    """Every [DISAGREE] line a validator printed while refusing."""
+    return list(_DISAGREEMENTS)
 
 
 def panel_says(*answers):

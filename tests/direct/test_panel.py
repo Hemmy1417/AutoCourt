@@ -25,7 +25,7 @@ def test_happy_path_derives_the_report_in_code(module, c):
     assert by_id["CL-01"]["verdict"] == "PARTIALLY_VERIFIED"
     assert by_id["CL-02"]["verdict"] == "PARTIALLY_VERIFIED"
     assert by_id["CL-01"]["next_action"] == "OBTAIN_INDEPENDENT_RECORD"
-    assert v["ruleset"] == "autocourt-rules-1"
+    assert v["ruleset"] == "autocourt-rules-2"
 
 
 def test_independent_anchor_lifts_verified_and_dispute_prices_adverse(
@@ -495,7 +495,7 @@ def _stored_meta(module, c, aid):
 
 
 def _forged_from(module, meta, conflicts, findings, explanations=None,
-                 disputes=None):
+                 disputes=None, identity_status="CONFIRMED"):
     """A leader whose report honestly follows from its own (possibly
     reduced or reshaded) findings — only consequence differences can
     refuse it."""
@@ -507,7 +507,7 @@ def _forged_from(module, meta, conflicts, findings, explanations=None,
                   "safety_critical": False}
     report = module._derive_report(
         claims_for, findings, meta, "acct-seller", disputes or [],
-        conflicts, explanations or {}, diagnostic)
+        conflicts, explanations or {}, diagnostic, identity_status)
     return {
         "report": report,
         "findings": findings,
