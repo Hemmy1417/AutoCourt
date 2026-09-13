@@ -70,9 +70,20 @@ export async function recordJobEffects(
       job.assessment.vehicle.seller.walletAddress,
     );
     if (!onChainId) continue;
+    // Cache what the registry told every validator at creation. The chain
+    // copy decides; this is the index the screens read.
+    let identityStatus = "";
+    let registryJson = "{}";
+    try {
+      const onChain = await chainClient.getAssessment(onChainId);
+      identityStatus = String(onChain["identity_status"] ?? "");
+      registryJson = JSON.stringify(onChain["registry_fields"] ?? {});
+    } catch {
+      // The link still stands; the screens fall back to reading the chain.
+    }
     await prisma.assessment.update({
       where: { id: job.assessmentId },
-      data: { onChainId },
+      data: { onChainId, identityStatus, registryJson },
     });
     result.linked += 1;
   }

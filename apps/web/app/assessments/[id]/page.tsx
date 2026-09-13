@@ -35,6 +35,8 @@ interface Detail {
   id: string;
   state: string;
   onChainId: string | null;
+  identityStatus: string;
+  registryJson: string;
   myRole: "SELLER" | "BUYER";
   packetVersion: number;
   vehicle: {
@@ -152,6 +154,56 @@ export default function AssessmentDossier() {
     hasOnChainId: Boolean(detail.onChainId),
   });
 
+/**
+ * What the public VIN registry said — the one fact on the record that no
+ * party supplied. Absence of confirmation is shown as absence, never as
+ * an accusation.
+ */
+function IdentityRow({
+  status,
+  registryJson,
+  declared,
+}: {
+  status: string;
+  registryJson: string;
+  declared: string;
+}) {
+  if (!status) return null;
+  let reg: Record<string, string> = {};
+  try {
+    reg = JSON.parse(registryJson || "{}") as Record<string, string>;
+  } catch {
+    reg = {};
+  }
+  const decoded = [reg.ModelYear, reg.Make, reg.Model]
+    .filter(Boolean)
+    .join(" ");
+  const body: Record<string, string> = {
+    CONFIRMED: decoded
+      ? `the VIN decodes to ${decoded}${reg.BodyClass ? ` (${reg.BodyClass})` : ""} — consistent with this listing`
+      : "the VIN decodes consistently with this listing",
+    MISMATCH: `the VIN decodes to ${decoded || "a different vehicle"}${reg.BodyClass ? ` (${reg.BodyClass})` : ""}, not a ${declared}. Every claim is capped until this is reconciled.`,
+    UNDECODABLE: "the registry could not decode this VIN — no confirmation either way, and not evidence against anyone",
+    SOURCE_UNAVAILABLE: "the registry was unreachable when this record opened — no confirmation either way, and not evidence against anyone",
+  };
+  const tone =
+    status === "MISMATCH"
+      ? "notice notice-warn"
+      : status === "CONFIRMED"
+        ? "notice notice-ok"
+        : "notice";
+  return (
+    <div className={tone} style={{ marginTop: 12, maxWidth: 620 }}>
+      <strong>Independent identity check — {status.replace(/_/g, " ").toLowerCase()}.</strong>{" "}
+      {body[status] ?? status}
+      <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+        Read from the public federal VIN registry by every validator
+        itself, before this record existed. No party supplied it.
+      </div>
+    </div>
+  );
+}
+
   return (
     <section className="section">
       <div className="spread" style={{ marginBottom: 18, flexWrap: "wrap" }}>
@@ -169,6 +221,11 @@ export default function AssessmentDossier() {
               <span className="tag">{detail.onChainId}</span>
             ) : null}
           </div>
+          <IdentityRow
+            status={detail.identityStatus}
+            registryJson={detail.registryJson}
+            declared={`${detail.vehicle.year} ${detail.vehicle.make} ${detail.vehicle.model}`}
+          />
         </div>
         <StateChip state={detail.state} />
       </div>

@@ -94,6 +94,11 @@ model Assessment {
   vehicleId     String
   vehicle       Vehicle  @relation(fields: [vehicleId], references: [id])
   onChainId     String? // ac-NNNNNN once created on-chain
+  // Cached from the contract at creation: what the public VIN registry
+  // said, read by every validator itself. CONFIRMED | MISMATCH |
+  // UNDECODABLE | SOURCE_UNAVAILABLE. The chain copy decides.
+  identityStatus String  @default("")
+  registryJson   String  @default("{}")
   state         String   @default("DRAFT") // AssessmentState + PROCESSING
   packetVersion Int      @default(0)
   createdAt     DateTime @default(now())

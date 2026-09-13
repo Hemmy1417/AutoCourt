@@ -37,7 +37,14 @@ if (!CONTRACT?.startsWith("0x")) {
 const KEYS = JSON.parse(readFileSync(
   fileURLToPath(new URL("../.data/keys.json", import.meta.url)), "utf-8"));
 const FEE_FLOOR = 10n ** 15n;
-const VIN = "1M8GDM9AXKP042788";
+// A REAL VIN that decodes cleanly at the federal registry, declared
+// honestly — so identity is CONFIRMED and this arc measures the evidence
+// machinery rather than the identity cap. The MISMATCH path has its own
+// proof in scripts/identity-demo.mjs.
+const VIN = "1HGCM82633A004352";
+const MAKE = "Honda";
+const MODEL = "Accord";
+const YEAR = 2003;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const sha = (s) => createHash("sha256").update(s, "utf-8").digest("hex");
@@ -177,7 +184,7 @@ async function seal(aid) {
 }
 
 const SVC_TEXT =
-  "SERVICE INVOICE 2026-03-07. Vehicle VIN 1M8GDM9AXKP042788. Odometer " +
+  "SERVICE INVOICE 2026-03-07. Vehicle VIN 1HGCM82633A004352. Odometer " +
   "reading 87,432 miles at service. Replaced front brake pads and rotors. " +
   "Coolant flush completed. Next service due at 92,000 miles.";
 const HIST_TEXT =
@@ -198,7 +205,7 @@ log(`config: max_runs ${cfg.max_runs_per_assessment} · per-item cap ${cfg.per_i
 
 // ── ACT I — the sale record ─────────────────────────────────────────────────
 log("── ACT I — the sale record");
-const vehicle = JSON.stringify({ vin: VIN, make: "Meridian", model: "GT Wagon", year: 2019, seller_account: "arc-seller" });
+const vehicle = JSON.stringify({ vin: VIN, make: MAKE, model: MODEL, year: YEAR, seller_account: "arc-seller" });
 const claims = JSON.stringify([
   { type: "MILEAGE", declared_value: "87,432 miles" },
   { type: "ACCIDENT_HISTORY", declared_value: "no recorded accidents" },
@@ -208,6 +215,15 @@ hard(c1.ok, "assessment #1 created");
 const stats = await view("get_stats", []);
 const A1 = `ac-${String(stats.assessments).padStart(6, "0")}`;
 log(`assessment #1 = ${A1}`);
+
+// The one fact on this record no party supplied: every validator decoded
+// the VIN at the federal registry itself before the record existed.
+const a1 = await view("get_assessment", [A1]);
+log(`identity: ${a1.identity_status} — registry reads this VIN as `
+    + `${a1.registry_fields?.ModelYear ?? "?"} ${a1.registry_fields?.Make ?? "?"} `
+    + `${a1.registry_fields?.Model ?? "?"}`);
+hard(a1.identity_status === "CONFIRMED",
+     "independent registry confirms the declared vehicle");
 
 hard((await writeOnce("submit_evidence_text", [A1, item("E-SVC", SVC_TEXT, {
   uploader: "arc-seller", role: "SELLER", cls: "SERVICE_INVOICE",
@@ -330,7 +346,7 @@ await mustRefuse("submit_evidence_text", [A2, item("E-LATE", "late text arriving
 // its mechanism asserts). A dedicated open fixture keeps each wall honest.
 log("wall fixture: an OPEN assessment for the pre-seal gates");
 const wallCreate = await writeOnce("create_assessment", [
-  JSON.stringify({ vin: VIN, make: "Meridian", model: "GT Wagon", year: 2019,
+  JSON.stringify({ vin: VIN, make: MAKE, model: MODEL, year: YEAR,
                    seller_account: "arc-seller" }),
   JSON.stringify([{ type: "CONDITION", declared_value: "wall fixture — never sealed" }]),
 ], "create wall fixture");

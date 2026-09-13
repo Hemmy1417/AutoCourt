@@ -21,6 +21,7 @@ interface VerdictPayload {
     rollup: string | null;
     inspection_required: boolean;
     flags: Record<string, boolean>;
+    identity_status?: string;
     claims: ClaimResult[];
     unresolved_questions: Record<string, string>;
     ruleset: string;
@@ -121,6 +122,17 @@ export default function Report() {
             </span>
           ) : null}
         </div>
+        {v.identity_status ? (
+          <p className="muted small" style={{ marginTop: 12 }}>
+            Independent identity check:{" "}
+            <strong>{v.identity_status.replace(/_/g, " ").toLowerCase()}</strong>{" "}
+            — the VIN was decoded at the public federal registry by every
+            validator itself, before any evidence was judged.
+            {v.flags?.vehicle_identity_mismatch
+              ? " Because it does not match the listing, no claim here may reach VERIFIED."
+              : ""}
+          </p>
+        ) : null}
         <div className="row" style={{ marginTop: 14, flexWrap: "wrap" }}>
           {Object.entries(v.flags).map(([flag, set]) =>
             set ? (
@@ -131,7 +143,9 @@ export default function Report() {
                     ? "MILEAGE_CONFLICT"
                     : flag === "odometer_rollback_indicated"
                       ? "POSSIBLE_ODOMETER_ROLLBACK"
-                      : "DIAGNOSTIC_CONCERN_SUPPORTED"
+                      : flag === "vehicle_identity_mismatch"
+                        ? "MATERIAL_CONCERN"
+                        : "DIAGNOSTIC_CONCERN_SUPPORTED"
                 }
               />
             ) : null,
