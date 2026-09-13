@@ -24,10 +24,17 @@ async function resolveOnChainId(
 ): Promise<string | null> {
   const stats = await chainClient.getStats();
   const total = Number(stats["assessments"] ?? 0);
+  // Ids REPEAT across contracts — a redeploy restarts the numbering — so
+  // "already taken" is only meaningful within one contract. Counting a
+  // row from a superseded deployment as taken makes a legitimately
+  // created record unlinkable, and every job addressing it waits forever.
   const taken = new Set(
     (
       await prisma.assessment.findMany({
-        where: { onChainId: { not: null } },
+        where: {
+          onChainId: { not: null },
+          contractAddress: chainClient.address,
+        },
         select: { onChainId: true },
       })
     ).map((a) => a.onChainId),

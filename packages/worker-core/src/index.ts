@@ -138,7 +138,10 @@ export async function runPendingJobs(deps: WorkerDeps): Promise<DrainResult> {
       OR: [{ lockedUntil: null }, { lockedUntil: { lt: now } }],
     },
     orderBy: { createdAt: "asc" },
-    take: 5,
+    // Generous, because jobs still waiting on their CREATE are skipped
+    // without being worked: a small window would let a few waiters crowd
+    // out every job that could actually run.
+    take: 25,
   });
 
   for (const candidate of candidates) {
@@ -166,11 +169,32 @@ export async function runPendingJobs(deps: WorkerDeps): Promise<DrainResult> {
           select: { onChainId: true },
         });
         if (!assessment?.onChainId) {
+          // Waiting is only reasonable while a CREATE is still coming. A
+          // job whose assessment has no CREATE job at all can never be
+          // satisfied — it would release its lease on every pass forever,
+          // and enough of them would starve the queue. Fail it loudly
+          // instead of spinning.
+          const creating = await prisma.job.count({
+            where: {
+              assessmentId: job.assessmentId,
+              kind: "CREATE",
+              state: { in: ["PENDING", "DONE"] },
+            },
+          });
           await prisma.job.update({
             where: { id: job.id },
-            data: { lockedUntil: null },
+            data: creating
+              ? { lockedUntil: null }
+              : {
+                  state: "FAILED",
+                  lockedUntil: null,
+                  lastError:
+                    "the assessment was never created on chain, so this " +
+                    "write has nothing to address",
+                },
           });
-          result.stillPending += 1;
+          if (creating) result.stillPending += 1;
+          else result.failed += 1;
           continue;
         }
         payload.onChainId = assessment.onChainId;
