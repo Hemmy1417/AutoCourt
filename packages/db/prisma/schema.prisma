@@ -97,6 +97,12 @@ model Assessment {
   // Cached from the contract at creation: what the public VIN registry
   // said, read by every validator itself. CONFIRMED | MISMATCH |
   // UNDECODABLE | SOURCE_UNAVAILABLE. The chain copy decides.
+  // WHICH contract this record lives on. A redeploy makes a new address
+  // the deployment of record, and rows created before it become orphans:
+  // the id still resolves, but on a contract that has no history for it.
+  // Storing it is what lets the report say that instead of showing an
+  // empty page.
+  contractAddress String @default("")
   identityStatus String  @default("")
   registryJson   String  @default("{}")
   state         String   @default("DRAFT") // AssessmentState + PROCESSING

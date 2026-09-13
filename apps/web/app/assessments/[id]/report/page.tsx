@@ -13,6 +13,8 @@ import {
 } from "../../../components/bits";
 
 interface VerdictPayload {
+  recordedContract?: string;
+  supersededRecord?: boolean;
   onChainId: string;
   contractAddress: string;
   verdict: {
@@ -78,11 +80,41 @@ export default function Report() {
   const v = data.verdict;
   if (!v.rollup)
     return (
-      <section className="section">
-        <div className="empty">
-          No standing verdict yet — {v.total_runs} attempt
-          {v.total_runs === 1 ? "" : "s"} on record, none has survived
-          consensus. The prior state of the record stands.
+      <section className="section" style={{ maxWidth: 720, margin: "0 auto" }}>
+        <div className="card" style={{ padding: 28 }}>
+          <h2>No verdict to show</h2>
+          {data.supersededRecord ? (
+            <>
+              <p className="muted small" style={{ marginTop: 10 }}>
+                This record was written to{" "}
+                <code className="mono">{data.recordedContract}</code>, which
+                is no longer the deployment of record. The contract this app
+                now reads —{" "}
+                <code className="mono">{data.contractAddress}</code> — has no
+                history for <strong>{data.onChainId}</strong>, so there is
+                nothing here to render.
+              </p>
+              <p className="muted small" style={{ marginTop: 10 }}>
+                Nothing was lost: the original verdict is still on the
+                superseded contract, permanently, and can be read on the
+                explorer. Records made from now on are judged by the current
+                contract.
+              </p>
+            </>
+          ) : v.total_runs === 0 ? (
+            <p className="muted small" style={{ marginTop: 10 }}>
+              No adjudication has been requested for this record yet. When
+              one is, a validator panel judges the sealed packet and the
+              verdict appears here.
+            </p>
+          ) : (
+            <p className="muted small" style={{ marginTop: 10 }}>
+              {v.total_runs} attempt{v.total_runs === 1 ? "" : "s"} on
+              record, and none survived consensus — so no verdict stands.
+              Every attempt keeps its transaction hash; the prior state of
+              the record is unchanged.
+            </p>
+          )}
         </div>
       </section>
     );

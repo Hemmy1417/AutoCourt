@@ -83,7 +83,12 @@ export async function recordJobEffects(
     }
     await prisma.assessment.update({
       where: { id: job.assessmentId },
-      data: { onChainId, identityStatus, registryJson },
+      data: {
+        onChainId,
+        identityStatus,
+        registryJson,
+        contractAddress: chainClient.address,
+      },
     });
     result.linked += 1;
   }

@@ -19,9 +19,16 @@ export async function GET(
     const { assessment } = await requireAccess(id, user.id);
     if (!assessment.onChainId) throw notFound("on-chain record");
     const verdict = await chain().getVerdict(assessment.onChainId);
+    // A record created before a redeploy still resolves by id, but on a
+    // contract with no history for it. Say which contract it belongs to
+    // rather than rendering an empty verdict.
+    const recordedContract = assessment.contractAddress || chain().address;
     return Response.json({
       onChainId: assessment.onChainId,
       contractAddress: chain().address,
+      recordedContract,
+      supersededRecord:
+        recordedContract.toLowerCase() !== chain().address.toLowerCase(),
       verdict,
       attempts: assessment.runs.map((r) => ({
         runNumber: r.runNumber,
