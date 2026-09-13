@@ -164,3 +164,64 @@ Every job DONE, and the intake receipt confirmed the party's item inside
 the on-chain manifest. `ac-000006` sits SEALED on the record — a record
 created by the app's own pipeline, not by a test script talking to the
 contract directly.
+
+
+## The independent identity check (the answer to "is GenLayer forced here?")
+
+The sharpest critique of this design was its own: when uploaded evidence
+rides in calldata, every validator reads identical bytes, so byte
+agreement is *structural* rather than earned. Private documents cannot be
+fetched by validators — that part is physics — but the listing's most
+basic claim can be, and now is.
+
+`create_assessment` is nondeterministic. Before a record exists, every
+validator decodes the VIN at the public federal registry
+(`vpic.nhtsa.dot.gov`, free, no key) and must agree on the seven identity
+fields it extracted. Only those fields cross into consensus; the decode
+carries 150+, most of them empty or incidental. The endpoint was verified
+fetchable and byte-stable across repeated calls before a line was
+written — a VIN decode is a lookup, not a feed.
+
+| VIN | identity fields digest | stable across calls |
+|---|---|---|
+| `1HGCM82633A004352` | `cff5e84294e5dc98…` | yes |
+| `1M8GDM9AXKP042788` | `90bb8791bc0783c0…` | yes |
+
+Live on `0xE26B3C4A36EC1a83Aa4814a9CA44e4b6a7EB7998`, four validators
+apiece:
+
+| listing | declared | registry | result | tx |
+|---|---|---|---|---|
+| honest | 2003 Honda Accord | 2003 HONDA Accord (Coupe) | CONFIRMED | `0x629fce9a7e6813096accfffe563862b105a84f11a7dc91fe9cb7c6b3d848a30d` |
+| false | 2019 Meridian GT Wagon | 1989 MOTOR COACH INDUSTRIES (Bus) | MISMATCH | `0xf8180b706a3db89404156bc27b972ef37d2b6a0264898f4ea588f35505ee6c0b` |
+
+Why this matters more than the anchor lane: anchors are optional items a
+party chooses to attach, so a record without one is simply uncorroborated.
+The registry check runs on **every** assessment, and it interrogates the
+claimant's own core assertion. A MISMATCH caps every claim below
+`VERIFIED` and takes the headline; UNDECODABLE and SOURCE_UNAVAILABLE are
+recorded as absence and never behave like accusations, because a registry
+outage must not indict a seller.
+
+Four mutants were run against the new guards in a scratch copy — cap
+removed, headline removed, validator no longer comparing registry fields,
+signature shape unchecked — and each was killed by its intended test.
+
+## The uploader's attestation
+
+The second honest gap was intake: the operator authenticates, extracts and
+assembles, so the packet was the operator's testimony. Now the wallet that
+uploads an item signs its `text_sha256`, and the signature rides onto the
+public record beside the hash it covers.
+
+The contract cannot recover a secp256k1 address and does not need to:
+because the record is public, anyone can verify forever that the bytes on
+chain are the ones that account signed. Intake becomes *attributable*
+rather than merely tamper-evident — the operator can still assemble a
+packet, but cannot substitute a document for one a party signed. Unsigned
+items are accepted and recorded AS unsigned; refusing them would trade an
+honest gap for a hidden one.
+
+What remains uncovered, permanently: a private uploaded document can never
+be fetched by validators, and no amount of consensus changes that. It is a
+stated limitation, not a solved problem.

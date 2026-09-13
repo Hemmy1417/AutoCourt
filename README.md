@@ -17,11 +17,11 @@
 
 | | |
 |---|---|
-| Contract | [`0x283E59d0DaA5080Ac0DC8371B7D44f04f8163c30`](https://explorer-studio-dev.genlayer.com/address/0x283E59d0DaA5080Ac0DC8371B7D44f04f8163c30) |
+| Contract | [`0xE26B3C4A36EC1a83Aa4814a9CA44e4b6a7EB7998`](https://explorer-studio-dev.genlayer.com/address/0xE26B3C4A36EC1a83Aa4814a9CA44e4b6a7EB7998) |
 | Network | GenLayer Studio Next, chain 61997 |
 | RPC | `https://studio-next.genlayer.com/api` |
-| Source | [`contracts/autocourt_assessment.py`](contracts/autocourt_assessment.py) — byte-verified: `node scripts/deploy.mjs verify 0x283E59d0…3c30` reports byte-for-byte identity (sha256 `3aef79ec…f0d8`) |
-| Superseded | `0x214821A6…5555` (opening round split on an immaterial sufficiency bit), then `0xE9d81837…C6a9` (its appeal round split on one marginal citation while every derived field agreed) — each split is documented with its receipts in [PROBE-REPORT](docs/PROBE-REPORT.md), each fix changed the contract, and a changed contract is a new address |
+| Source | [`contracts/autocourt_assessment.py`](contracts/autocourt_assessment.py) — byte-verified: `node scripts/deploy.mjs verify 0xE26B3C4A…7998` reports byte-for-byte identity (sha256 `aac854f1…01ac`) |
+| Superseded | `0x214821A6…5555` (opening round split on an immaterial sufficiency bit), `0xE9d81837…C6a9` (appeal round split on one marginal citation), then `0x283E59d0…3c30` (superseded by the independent identity check below, not by a defect) — every split is documented with its receipts in [PROBE-REPORT](docs/PROBE-REPORT.md) |
 | Anchor allowlist | `["raw.githubusercontent.com"]` — the proven independent evidence host on this network, standing in for vehicle registries; visible in `get_config()`, and `VERIFIED` is reachable only through it |
 
 ## What the contract owns, and what it refuses to
@@ -30,10 +30,23 @@ The operator's app authenticates wallets, stores files, extracts text and
 assembles packets — that part is testimony, made tamper-evident by dual
 hashes in an on-chain manifest. Everything downstream is consensus:
 
+- **The contract checks the listing's core claim itself.** Before a record
+  exists, every validator decodes the VIN at the public federal registry
+  (NHTSA vPIC) and must agree on what it read. This is the one fact on an
+  AutoCourt record that no party supplies — not the seller, not the buyer,
+  not the operator — and it runs on every assessment. A mismatch caps
+  every claim below `VERIFIED` and takes the headline; an unreachable or
+  undecodable registry is recorded as absence, never as an accusation.
 - **Evidence is corroborated where it enters the record.** Uploaded text
   arrives as calldata with its hash recomputed at entry by every
   validator; anchor pages are fetched by every validator itself. No
   leader-private byte exists anywhere.
+- **Uploaders attest to their own bytes.** The wallet that uploads a
+  document signs its text hash, and the signature lands on the public
+  record beside the hash it covers. Anyone can verify forever that these
+  are the bytes that account signed, so the operator can assemble a packet
+  but cannot substitute a document. Unsigned items are recorded AS
+  unsigned.
 - **The model returns findings; code derives every verdict.** The panel
   outputs per-claim, per-item findings with quotes that must ground
   word-token-wise in the recorded text. Deterministic code — run
@@ -56,9 +69,10 @@ hashes in an on-chain manifest. Everything downstream is consensus:
 | kind | values |
 |---|---|
 | claim verdicts (one per claim) | `VERIFIED` · `PARTIALLY_VERIFIED` · `CLAIM_CONTRADICTED` · `CONFLICTING_EVIDENCE` · `INSUFFICIENT_EVIDENCE` · `PHYSICAL_INSPECTION_REQUIRED` · `INCONCLUSIVE` |
-| code-derived flags | `mileage_conflict` · `odometer_rollback_indicated` · `diagnostic_concern_supported` |
-| assessment rollup (fixed precedence) | `POSSIBLE_ODOMETER_ROLLBACK` ≻ `MILEAGE_CONFLICT` ≻ `MATERIAL_CONCERN` ≻ `DIAGNOSTIC_CONCERN_SUPPORTED` ≻ … |
-| statuses, never verdicts | `REJECTED` (an attempt consensus refused — app-side with its tx hash) · `SOURCE_UNAVAILABLE` (an anchor all validators agreed was gone) |
+| code-derived flags | `mileage_conflict` · `odometer_rollback_indicated` · `diagnostic_concern_supported` · `vehicle_identity_mismatch` |
+| assessment rollup (fixed precedence) | identity mismatch ≻ `POSSIBLE_ODOMETER_ROLLBACK` ≻ `MILEAGE_CONFLICT` ≻ `MATERIAL_CONCERN` ≻ `DIAGNOSTIC_CONCERN_SUPPORTED` ≻ … |
+| statuses, never verdicts | `REJECTED` (an attempt consensus refused — app-side with its tx hash) · `SOURCE_UNAVAILABLE` (an anchor, or the registry, all validators agreed was gone) |
+| identity, from the registry | `CONFIRMED` · `MISMATCH` · `UNDECODABLE` · `SOURCE_UNAVAILABLE` |
 
 Corroboration ladder, derived in-contract per (claim, item, direction)
 edge: `INDEPENDENT` (every-validator anchor) > `ADVERSE` (recorded
@@ -95,6 +109,31 @@ deploys before anything canonical existed
   the decision cut, the rerun finalized `MAJORITY_AGREE` deriving exactly
   what the deterministic spec predicts. Both transactions are in the
   report; five direct tests pin both directions.
+
+## The identity check, live
+
+Two assessments differing only in their VIN, on the deployment of record.
+Nothing about either outcome came from a party — four validators each
+decoded the VIN at the federal registry and had to agree
+([`scripts/identity-demo.mjs`](scripts/identity-demo.mjs)):
+
+| listing | seller declares | the registry reads | result |
+|---|---|---|---|
+| honest — `1HGCM82633A004352` | 2003 Honda Accord | 2003 HONDA Accord (Coupe) | **CONFIRMED** |
+| false — `1M8GDM9AXKP042788` | 2019 Meridian GT Wagon | **1989 MOTOR COACH INDUSTRIES 102C3 Intercity (Bus)** | **MISMATCH** |
+
+`0x629fce9a7e6813096accfffe563862b105a84f11a7dc91fe9cb7c6b3d848a30d` ·
+`0xf8180b706a3db89404156bc27b972ef37d2b6a0264898f4ea588f35505ee6c0b`
+
+The second row is the point. The seller supplied every other byte on that
+record, and the contract still caught the identity — because the one
+question that matters most was never asked of the seller.
+
+Make comparison is deliberately forgiving ("Mercedes" matches
+"MERCEDES-BENZ"), because a false mismatch accuses an honest seller. An
+abbreviation the registry does not share — "VW" against "VOLKSWAGEN" —
+reads as a mismatch; that is a stated limitation, and the reason a
+mismatch caps a claim rather than alleging fraud.
 
 ## Live evidence
 
