@@ -139,80 +139,76 @@ mismatch caps a claim rather than alleging fraud.
 
 <!-- ARC:BEGIN -->
 Run 13 Sep 2026 against the deployment of record
-`0x283E59d0DaA5080Ac0DC8371B7D44f04f8163c30` (operator
-`0x8af429f1…6fd1`), by [`scripts/arc.mjs`](scripts/arc.mjs) — every line
-below is either backed by a hard assertion in that script (it exits
-non-zero without it) or marked *observed* where the value is the live
-panel's judgment. Every transaction FINALIZED under MAJORITY_AGREE;
-explorer links: `https://explorer-studio-dev.genlayer.com/tx/<hash>`.
+`0xE26B3C4A36EC1a83Aa4814a9CA44e4b6a7EB7998` (operator `0x8af429f1…6fd1`),
+by [`scripts/arc.mjs`](scripts/arc.mjs) — every line below is either
+backed by a hard assertion in that script (it exits non-zero without it)
+or marked *observed* where the value is the live panel's judgment. Every
+transaction FINALIZED under MAJORITY_AGREE. Explorer:
+`https://explorer-studio-dev.genlayer.com/tx/<hash>`.
 
-**Act I — the sale record** (`ac-000001`): seller declares mileage and
-accident-history claims; the seller's invoice and the buyer's history
-record enter with their text hashes recomputed at entry; the buyer's
-dispute is recorded before the run; the packet seals over stored items.
+**Act I — the sale record** (`ac-000003`): a real VIN, declared honestly.
+Before the record existed, every validator decoded it at the federal
+registry — **CONFIRMED, 2003 HONDA Accord**. Then the seller's invoice and
+the buyer's history record enter with their text hashes recomputed at
+entry, the buyer's dispute is recorded, and the packet seals.
 
 | step | tx |
 |---|---|
-| create | `0xfe7b8f677ab61be0f1143900eb84bb480c0bbe8f2bd6b32ef0d2d6d3fed6da68` |
-| seller invoice enters | `0x71398154b15a63b61960d916dc82351699766894316ff521a027d05d1b44d350` |
-| buyer history enters | `0x621100fd548642bf33fcac6eac93f3346cafa326ae13cf9a538479d754ba8302` |
-| buyer disputes CL-02 | `0x7031811bcf1f054c06868f388db85dd944319b3f625437c0af6b8944fd207c2b` |
-| seal | `0x7a47de2f5a750bae97212a8c51169676c0303fa08633a50a5aee9958872594ef` |
-| adjudicate (panel) | `0x6bee7b8ab1645b923d03f57e440fc28ae92c2f9ec0a7def6ceb63990274184f4` |
+| create (registry decoded by every validator) | `0x2684686e5d25ed7c8ddaeaac374e646c62015016e3c4a8b777ff2f934d00b897` |
+| seller invoice enters | `0x1af08ff5bf279ef28191b4905bdb7c0ae04a902f3f2202df50b61b689f755c03` |
+| buyer history enters | `0x90aa4517c0f3eb9ef9b44ef9cfc57dd9b546a945da969efeffe85285120a2b77` |
+| buyer disputes CL-02 | `0x92117a2306f81e8824bb77e1633ed04b87ee035f6a4ab59d27693016dd92581b` |
+| seal | `0x3c1ba9812543f09d4e533ba9ccc4c9ba856921126d90e1532b204697f1dd9d9d` |
+| adjudicate (panel) | `0x81e01018e1f2850650f90b2cab21d427282a38ee35dbcb5118a2e2bfb4f9b0d8` |
 
 Derived on-chain: rollup `PARTIALLY_VERIFIED`. CL-01 support classes
-`[FIRST_PARTY]`, confidence LOW; CL-02 support `[ADVERSE]` (the
-disputing buyer's own record backing the claim it disputes), confidence
-MEDIUM. **Asserted**: neither claim reaches `VERIFIED` without an
-INDEPENDENT anchor, and no mileage conflict is invented from ascending
-readings.
+`[FIRST_PARTY]`, confidence LOW; CL-02 support `[ADVERSE]` — the disputing
+buyer's own record backing the claim it disputes — confidence MEDIUM.
+**Asserted**: the registry confirms the declared vehicle, and neither
+claim reaches `VERIFIED` without an INDEPENDENT anchor.
 
-**Act II — the rollback record** (`ac-000002`): a later-dated LOWER
+**Act II — the rollback record** (`ac-000004`): a later-dated LOWER
 odometer reading enters from a second account, with its dispute.
 
 | step | tx |
 |---|---|
-| create | `0x1a9d88e692beb04b2ef34cec639a3226aac586a7b9046c910eb9e3d4a4220084` |
-| invoice enters | `0xe356f30afb5d40351468905c4406772514c33b8516a53999805088added2e484` |
-| later-dated lower reading | `0x3584f25a0be03f7783437204e6315cef02a6a9fd7dd51c3bef5e34379a5f7cd8` |
-| second account disputes | `0x811736bb9e249b271b100db1e03c3dadd7a50c5b4cd69a8396fed6819ffee7a7` |
-| seal | `0xbdc4920c1443ddc09cc1c88bb0dbea230f6a7556e0a022204b79d64e7c71d984` |
-| adjudicate (panel) | `0x77a4138c5ce225426431fcfa6b0774c2d44de30f0055a6a05b7a44d2dcebd92f` |
+| create | `0xd2868a6c78c627399172ba6ef3b5d572aa7c9af0c23d1ddb8e26b6750714f73b` |
+| invoice enters | `0x8a7e45f4ba72b05dc4ad914f0ddc3124aa449d317e053dd38a36eaffead6abfe` |
+| later-dated lower reading | `0x59dd27fcc44ab1d179105d7511560c736cce056d72e8844fa018439b62083ed3` |
+| second account disputes | `0xcfde7cef0c90eb953ec167a32c93ccabaaf36c5a9a0bd6566b96883799e8ef9e` |
+| seal | `0xd08d344c35a81a479d2ca92be3a3a7dd07f36d1149e29162d7d54889d980d4e9` |
+| adjudicate (panel) | `0x0374c932e36edd2a748409b67c8472816ed18597470fc417826f8d4411464795` |
 
 **Asserted**: the contract recomputes the mileage conflict from typed
-observation rows (`mileage_conflict: true`). *Observed*: the panel found
-no explanation in the record, so `odometer_rollback_indicated: true` and
-the rollup is `POSSIBLE_ODOMETER_ROLLBACK`.
+observation rows. *Observed*: the panel found no explanation in the
+record, so the rollup is `POSSIBLE_ODOMETER_ROLLBACK`.
 
-**Act III — the appeal on the record** (`ac-000001`): the buyer's
-post-verdict counter-report enters tagged NEW; the appeal re-judges the
-stored bytes plus it.
+**Act III — the appeal** (`ac-000003`): the buyer's post-verdict
+counter-report enters tagged NEW; the appeal re-judges the stored bytes
+plus it.
 
 | step | tx |
 |---|---|
-| counter-report enters (NEW) | `0xa3cb3dd3238d5fe5e0342d7831b0eb0572c07b1468055337df402a238f1b8cc8` |
-| readjudicate (panel) | `0xf2c955a92d0d758198bd279a366d50d15367ec23c6cbc3eafd313480cd0bb540` |
+| counter-report enters (NEW) | `0xcd4120671015228ff37889ea811635bd1b300f7143499f3c43ca1a274d64dc3d` |
+| readjudicate (panel) | `0x3e61ccac402ee6c17e7419e7d934c8718a71c75c186cf01db3d571222a9a696c` |
 
 Run 2 rollup `PHYSICAL_INSPECTION_REQUIRED`. **Asserted**: run 1 is
-byte-identical after the appeal (the record is immutable); the new item
-was judged at packet v2 and tagged post-verdict; and the accuser-only
-contradiction is floored at inspection — it never becomes
-`CLAIM_CONTRADICTED` on the accuser's own upload.
+byte-identical after the appeal; the new item was judged at packet v2 and
+tagged post-verdict; and the accuser-only contradiction is floored at
+inspection rather than becoming `CLAIM_CONTRADICTED`.
 
-**The wall** — every refusal FINALIZED with the contract's own sentence
-decoded from the leader receipt. The two pre-seal gates are proven on a
-dedicated OPEN fixture (`ac-000003`, create
-`0xe5392139d8bafec9219621fab030cff573529c12149f22621a9807d5a53bd3c8`),
-because on a sealed record the seal gate fires first and would prove the
-wrong sentence.
+**The wall** — five refusals, each FINALIZED with the contract's own
+sentence decoded from the leader receipt. **None unproven.** The two
+pre-seal gates run on a dedicated OPEN fixture (`ac-000005`), because on a
+sealed record the seal gate fires first and would prove the wrong sentence.
 
 | wall | the contract's sentence | tx |
 |---|---|---|
-| re-judge an unchanged packet | `[EXPECTED] run 2 already judged this exact packet; a re-judgment is an appeal (readjudicate)` | `0x1ee0f1c755f95ec09614c1cef46c83fbde1b5f38176d3b5f9a28bd1f9b4ac652` |
-| stranger appeal | `[EXPECTED] only a recorded party may appeal` | `0xbdce02da8b02da80c42aae1e9e41b6ba5c46508541b051a80ba8c8ff45e1d37e` |
-| evidence after seal | `[EXPECTED] evidence closes at seal; new evidence after a verdict enters through submit_appeal_evidence` | `0xc7dec3494339a0ce3a2a2b97572e6b451ff28b010a66f77aa37764f9d966cbfc` |
-| hash not covering the bytes | `[EXPECTED] text_sha256 does not match the supplied text` | `0x62def665583445fb02c8a78bd474de03ee7e05862b614afb7a5ddc008a5468c6` |
-| anchor off the allowlist | `[EXPECTED] anchor host is not on the deployment allowlist` | `0xe223e5222000b00c58cc5515750bada20ba5ff256093f250d8f1b5a3945f1eec` |
+| re-judge an unchanged packet | `[EXPECTED] run 2 already judged this exact packet; a re-judgment is an appeal (readjudicate)` | `0x53d558b149e38579b1db1185273cf26ad78c7828be2f8f225b6c2325dff04c62` |
+| stranger appeal | `[EXPECTED] only a recorded party may appeal` | `0xd890fbd057451b0e7cef09b1847d19f5651b5f5fb8b212170e533c363d67092d` |
+| evidence after seal | `[EXPECTED] evidence closes at seal; new evidence after a verdict enters through submit_appeal_evidence` | `0xbfd5c5e1e24339cb99222de6e164a6ed99ed2d5eef9a5f9a3f8ef6fac48b8a2a` |
+| hash not covering the bytes | `[EXPECTED] text_sha256 does not match the supplied text` | `0x8445359f255a437d1e30372350ea9e02304b48e129ba1f82492169703a1cf98e` |
+| anchor off the allowlist | `[EXPECTED] anchor host is not on the deployment allowlist` | `0x8924d76b99a3ad7a0fda04c00f5e5cf7f43675ca4bf0f6fbc613d5ec1cda80b1` |
 <!-- ARC:END -->
 
 ## Running it

@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { actsFor, type Act } from "../../../lib/acts";
+import { attestationMessage } from "../../../lib/attest";
 import { api, ApiFailure, EXPLORER, shortHash } from "../../components/api";
 import {
   CopyText,
@@ -1076,11 +1077,27 @@ function ConsentPanel({
           setBusy(true);
           setError(null);
           try {
+            // Attest to the FINAL bytes with the same wallet that
+            // uploaded them. Declining the prompt still consents — the
+            // item is simply recorded as unsigned, which is honest.
+            let signature = "";
+            try {
+              signature = await signAttestation({
+                evidenceId: item.evidenceId,
+                textSha256: item.textSha256,
+                fileSha256: item.fileSha256,
+              });
+            } catch {
+              signature = "";
+            }
             await api(
               `/api/assessments/${detail.id}/evidence/${item.id}/consent`,
               {
                 method: "POST",
-                body: JSON.stringify({ consentVersion: "publicity-statement-1" }),
+                body: JSON.stringify({
+                  consentVersion: "publicity-statement-1",
+                  signature,
+                }),
               },
             );
             onDone();
@@ -1094,6 +1111,50 @@ function ConsentPanel({
       </button>
     </div>
   );
+}
+
+/**
+ * Ask the connected wallet to sign the attestation. Returns "" when no
+ * wallet answers or the user declines — an unsigned item is a recorded
+ * fact, never a blocked upload.
+ */
+async function signAttestation(opts: {
+  evidenceId: string;
+  textSha256: string;
+  fileSha256: string;
+}): Promise<string> {
+  const provider = await new Promise<
+    { request: (a: { method: string; params?: unknown[] }) => Promise<unknown> } | null
+  >((resolve) => {
+    let done = false;
+    const onAnnounce = (e: Event) => {
+      if (done) return;
+      done = true;
+      window.removeEventListener("eip6963:announceProvider", onAnnounce);
+      resolve((e as CustomEvent).detail?.provider ?? null);
+    };
+    window.addEventListener("eip6963:announceProvider", onAnnounce);
+    window.dispatchEvent(new Event("eip6963:requestProvider"));
+    setTimeout(() => {
+      if (done) return;
+      done = true;
+      window.removeEventListener("eip6963:announceProvider", onAnnounce);
+      resolve(
+        (window as unknown as { ethereum?: { request: (a: { method: string; params?: unknown[] }) => Promise<unknown> } })
+          .ethereum ?? null,
+      );
+    }, 400);
+  });
+  if (!provider) return "";
+  const accounts = (await provider.request({
+    method: "eth_requestAccounts",
+  })) as string[];
+  const address = accounts?.[0];
+  if (!address) return "";
+  return (await provider.request({
+    method: "personal_sign",
+    params: [attestationMessage(opts), address],
+  })) as string;
 }
 
 function UploadCard({

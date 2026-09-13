@@ -108,7 +108,7 @@ test("the seller-to-buyer journey holds end to end", async ({ browser }) => {
   ).toBeVisible();
   await seller.getByRole("checkbox").check();
   await seller.getByRole("button", { name: /Consent E-001/ }).click();
-  await expect(seller.getByText("consented").first()).toBeVisible();
+  await expect(seller.getByText("consent pending")).toHaveCount(0);
 
   // Share link — shown exactly once.
   await seller.getByRole("button", { name: "Create a share link" }).click();
@@ -143,6 +143,11 @@ test("the seller-to-buyer journey holds end to end", async ({ browser }) => {
   await buyer.getByRole("button", { name: "Consent for the packet" }).click();
   await buyer.getByRole("checkbox").last().check();
   await buyer.getByRole("button", { name: /Consent E-002/ }).click();
+  // Consent now asks the wallet to attest the final bytes before it
+  // posts. Wait on the ABSENCE of any pending item: "consented" alone is
+  // ambiguous here, because the seller's E-001 badge is visible to the
+  // buyer too and would satisfy the wait before E-002 had landed.
+  await expect(buyer.getByText("consent pending")).toHaveCount(0);
 
   // The seller submits: state advances and the journey stepper says so.
   await seller.reload();
