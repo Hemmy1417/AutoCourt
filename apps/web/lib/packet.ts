@@ -59,6 +59,7 @@ export interface EvidenceWritePayload {
   extractor_version: string;
   status: "EXTRACTED" | "UNEXTRACTED";
   text: string;
+  uploader_signature: string;
   observations: ObservationRow[];
   diagnostic_codes: string[];
   capture_date: string;
@@ -76,6 +77,8 @@ export interface ItemForPacket {
   textSha256: string;
   extractorVersion: string;
   status: "EXTRACTED" | "UNEXTRACTED";
+  /** The uploader's EIP-191 signature over textSha256; "" if unsigned. */
+  uploaderSignature: string;
   observations: ObservationRow[];
   diagnosticCodes: string[];
   captureDate: string;
@@ -106,6 +109,7 @@ export function evidenceWritePayload(item: ItemForPacket): string {
     extractor_version: item.extractorVersion,
     status: item.status,
     text: item.status === "EXTRACTED" ? item.normalizedText : "",
+    uploader_signature: item.uploaderSignature,
     observations: item.observations,
     diagnostic_codes: item.diagnosticCodes,
     capture_date: item.captureDate,

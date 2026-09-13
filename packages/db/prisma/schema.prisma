@@ -125,6 +125,10 @@ model EvidenceItem {
   fileSha256       String // identity of the original bytes
   textSha256       String // identity of the JUDGED bytes (post-redaction)
   extractorVersion String
+  // The uploader's own EIP-191 signature over textSha256. Carried onto
+  // the public record so anyone can verify these are the bytes that
+  // account signed — the operator cannot substitute a document.
+  uploaderSignature String   @default("")
   status           String // ItemStatus
   redactionStatus  String     @default("NONE") // NONE | REDACTED
   phase            String     @default("SUBMISSION") // SUBMISSION | APPEAL

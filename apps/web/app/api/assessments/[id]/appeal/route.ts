@@ -64,6 +64,7 @@ export async function POST(
         textSha256: i.textSha256,
         extractorVersion: i.extractorVersion,
         status: i.status === "EXTRACTED" ? "EXTRACTED" : "UNEXTRACTED",
+      uploaderSignature: i.uploaderSignature,
         observations: i.observations
           .filter((o) => o.odometerReading !== null)
           .map((o) => ({

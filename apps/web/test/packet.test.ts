@@ -65,6 +65,7 @@ const baseItem: ItemForPacket = {
   textSha256: "b".repeat(64),
   extractorVersion: "extractor-1.0.0",
   status: "EXTRACTED",
+  uploaderSignature: "0x" + "ab".repeat(65),
   observations: [],
   diagnosticCodes: [],
   captureDate: "2026-03-07",
@@ -94,6 +95,16 @@ describe("evidence write payload", () => {
       }),
     );
     expect(parsed.text).toBe("");
+  });
+
+  it("carries the uploader's attestation onto the record", () => {
+    const parsed = JSON.parse(evidenceWritePayload(baseItem));
+    expect(parsed.uploader_signature).toBe("0x" + "ab".repeat(65));
+    // An unsigned item is carried as unsigned, never omitted.
+    const unsigned = JSON.parse(
+      evidenceWritePayload({ ...baseItem, uploaderSignature: "" }),
+    );
+    expect(unsigned.uploader_signature).toBe("");
   });
 
   it("manifest entries mirror the four committed fields", () => {
