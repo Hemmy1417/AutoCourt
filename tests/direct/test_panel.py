@@ -476,3 +476,176 @@ def test_get_verdict_before_any_run(module, c):
     aid = build_assessment(module, c)
     v = json.loads(c.get_verdict(aid))
     assert v["standing_run"] == 0 and v["rollup"] is None
+
+
+# ── the citation-materiality lessons (earned on the first canonical
+#    appeal round: tx 0xbdb157ca…, MAJORITY_DISAGREE over one marginal
+#    citation while every derived field agreed) ───────────────────────────
+
+
+def _stored_meta(module, c, aid):
+    stored = [json.loads(c.items[f"{aid}|{eid}"])
+              for eid in json.loads(c.item_index[aid])]
+    meta = [{k: it.get(k) for k in
+             ("evidence_id", "lane", "phase", "status", "uploader_account",
+              "uploader_role", "declared_class", "file_sha256",
+              "text_sha256", "judged_version")} for it in stored]
+    obs = [o for it in stored for o in it.get("observations", [])]
+    return stored, meta, module._mileage_conflicts(obs)
+
+
+def _forged_from(module, meta, conflicts, findings, explanations=None,
+                 disputes=None):
+    """A leader whose report honestly follows from its own (possibly
+    reduced or reshaded) findings — only consequence differences can
+    refuse it."""
+    claims_for = [{"claim_id": "CL-01", "type": "MILEAGE",
+                   "record_sufficient": True},
+                  {"claim_id": "CL-02", "type": "ACCIDENT_HISTORY",
+                   "record_sufficient": True}]
+    diagnostic = {"supported": False, "severity": "MINOR",
+                  "safety_critical": False}
+    report = module._derive_report(
+        claims_for, findings, meta, "acct-seller", disputes or [],
+        conflicts, explanations or {}, diagnostic)
+    return {
+        "report": report,
+        "findings": findings,
+        "sufficiency": {"CL-01": "SUFFICIENT", "CL-02": "SUFFICIENT"},
+        "explanations": explanations or {},
+        "diagnostic": diagnostic,
+        "unresolved": {"CL-01": "", "CL-02": ""},
+    }
+
+
+def test_marginal_citation_difference_does_not_split_the_round(module, c):
+    """The live appeal-round split, replayed: the leader cites one FEWER
+    supporting document on CL-01 — same account voices, same class
+    projection, same verdict — and the round must survive, because a
+    citation with nothing derived at stake is judgment shading."""
+    aid = build_assessment(module, c)
+    panel_says(panel_answer())  # mine: CL-01 supported by E-SVC AND E-HIST
+    _, meta, conflicts = _stored_meta(module, c, aid)
+    leaner_findings = {
+        "CL-01": [{"claim_id": "CL-01", "evidence_id": "E-SVC",
+                   "status": "SUPPORTED", "severity": "MODERATE",
+                   "quotes": [{"evidence_id": "E-SVC",
+                               "text": "Odometer reading 87,432 miles "
+                                       "at service"}]}],
+        "CL-02": [{"claim_id": "CL-02", "evidence_id": "E-HIST",
+                   "status": "SUPPORTED", "severity": "MODERATE",
+                   "quotes": [{"evidence_id": "E-HIST",
+                               "text": "No accident records found for "
+                                       "this vehicle"}]}],
+    }
+    forge_leader(_forged_from(module, meta, conflicts, leaner_findings))
+    got = c.adjudicate(aid)
+    assert got == "run 1: PARTIALLY_VERIFIED"
+    assert json.loads(c.get_assessment(aid))["runs_count"] == 1
+
+
+def test_citation_that_removes_a_voice_class_refuses_the_round(module, c):
+    """The same omission WITH a consequence: dropping CL-02's only
+    supporting document leaves the leader deriving INSUFFICIENT_EVIDENCE
+    where this validator derives PARTIALLY_VERIFIED — refused."""
+    aid = build_assessment(module, c)
+    panel_says(panel_answer())
+    _, meta, conflicts = _stored_meta(module, c, aid)
+    gutted_findings = {
+        "CL-01": [{"claim_id": "CL-01", "evidence_id": "E-SVC",
+                   "status": "SUPPORTED", "severity": "MODERATE",
+                   "quotes": [{"evidence_id": "E-SVC",
+                               "text": "Odometer reading 87,432 miles "
+                                       "at service"}]}],
+        "CL-02": [],
+    }
+    forge_leader(_forged_from(module, meta, conflicts, gutted_findings))
+    with pytest.raises(err(module), match="did not agree"):
+        c.adjudicate(aid)
+    assert json.loads(c.get_assessment(aid))["runs_count"] == 0
+
+
+def test_explanation_shading_with_no_consequence_survives(module, c):
+    """A single-account odometer conflict is floored out of the rollback
+    flag whatever the explanation says — so EXPLAINED vs NOT_EXPLAINED
+    with identical flags must not burn the round."""
+    seller_low = item(
+        "E-LOW",
+        "SELLER NOTE 2026-05-01. Odometer shows 62,000 miles after "
+        "cluster service.",
+        uploader="acct-seller", role="SELLER",
+        declared_class="SELLER_DECLARATION",
+        observations=[{"doc_date": "2026-05-01",
+                       "odometer_reading": 62000,
+                       "odometer_unit": "MILES",
+                       "source_field": "note"}])
+    aid = build_assessment(module, c, items=[svc_item(), seller_low])
+    mine = panel_answer(findings=[
+        finding("CL-01", "E-SVC", "SUPPORTED", "MODERATE",
+                ["Odometer reading 87,432 miles at service"]),
+        finding("CL-01", "E-LOW", "CONTRADICTED", "MODERATE",
+                ["Odometer shows 62,000 miles"]),
+    ], explanations={"MC-01": "NOT_EXPLAINED"})
+    panel_says(mine)
+    _, meta, conflicts = _stored_meta(module, c, aid)
+    assert len(conflicts) == 1 and conflicts[0]["accounts"] == ["acct-seller"]
+    same_findings = {
+        "CL-01": [{"claim_id": "CL-01", "evidence_id": "E-SVC",
+                   "status": "SUPPORTED", "severity": "MODERATE",
+                   "quotes": [{"evidence_id": "E-SVC",
+                               "text": "Odometer reading 87,432 miles "
+                                       "at service"}]},
+                  {"claim_id": "CL-01", "evidence_id": "E-LOW",
+                   "status": "CONTRADICTED", "severity": "MODERATE",
+                   "quotes": [{"evidence_id": "E-LOW",
+                               "text": "Odometer shows 62,000 miles"}]}],
+        "CL-02": [],
+    }
+    forge_leader(_forged_from(module, meta, conflicts, same_findings,
+                              explanations={"MC-01": "EXPLAINED"}))
+    got = c.adjudicate(aid)
+    assert got.startswith("run 1:")
+    v = json.loads(c.get_verdict(aid))
+    assert v["flags"]["mileage_conflict"] is True
+    assert v["flags"]["odometer_rollback_indicated"] is False
+
+
+def test_explanation_flip_with_a_consequence_refuses_the_round(module, c):
+    """The same shading where it BITES: two accounts' readings conflict,
+    so EXPLAINED vs NOT_EXPLAINED flips the rollback flag — the reports
+    differ and the round is refused."""
+    buyer_low = item(
+        "E-LOW",
+        "AUCTION LISTING 2026-05-01. Odometer shows 62,000 miles.",
+        uploader="acct-buyer2", role="BUYER",
+        declared_class="VEHICLE_HISTORY_RECORD",
+        observations=[{"doc_date": "2026-05-01",
+                       "odometer_reading": 62000,
+                       "odometer_unit": "MILES",
+                       "source_field": "listing"}])
+    aid = build_assessment(module, c, items=[svc_item(), buyer_low])
+    mine = panel_answer(findings=[
+        finding("CL-01", "E-SVC", "SUPPORTED", "MODERATE",
+                ["Odometer reading 87,432 miles at service"]),
+        finding("CL-01", "E-LOW", "CONTRADICTED", "MAJOR",
+                ["Odometer shows 62,000 miles"]),
+    ], explanations={"MC-01": "NOT_EXPLAINED"})
+    panel_says(mine)
+    _, meta, conflicts = _stored_meta(module, c, aid)
+    same_findings = {
+        "CL-01": [{"claim_id": "CL-01", "evidence_id": "E-SVC",
+                   "status": "SUPPORTED", "severity": "MODERATE",
+                   "quotes": [{"evidence_id": "E-SVC",
+                               "text": "Odometer reading 87,432 miles "
+                                       "at service"}]},
+                  {"claim_id": "CL-01", "evidence_id": "E-LOW",
+                   "status": "CONTRADICTED", "severity": "MAJOR",
+                   "quotes": [{"evidence_id": "E-LOW",
+                               "text": "Odometer shows 62,000 miles"}]}],
+        "CL-02": [],
+    }
+    forge_leader(_forged_from(module, meta, conflicts, same_findings,
+                              explanations={"MC-01": "EXPLAINED"}))
+    with pytest.raises(err(module), match="did not agree"):
+        c.adjudicate(aid)
+    assert json.loads(c.get_assessment(aid))["runs_count"] == 0

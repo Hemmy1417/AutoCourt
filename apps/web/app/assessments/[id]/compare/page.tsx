@@ -26,8 +26,6 @@ interface RunPayload {
         claim_id: string;
         claim_type: string;
         verdict: string;
-        supporting: string[];
-        contradicting: string[];
       }[];
     };
   };

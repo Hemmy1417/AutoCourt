@@ -109,11 +109,28 @@ async function mustRefuse(fn, args, label, expectFragment) {
       failures.push(`wall accepted: ${label}`);
       return;
     }
-    const stderr = String(w.leader?.genvm_result?.stderr ?? "");
-    if (expectFragment && stderr.includes(expectFragment)) {
-      log(`WALL ${label}: refused with the expected sentence`);
-    } else if (stderr.includes("[EXPECTED]")) {
-      log(`WALL ${label}: refused (reason recorded above)`);
+    // The refusal sentence lives in leader_receipt.result.payload:
+    // base64 whose decoded bytes are a control byte + the printable
+    // UserError text (the leader-payload lesson; stderr is empty here).
+    let reason = "";
+    const rawPayload = w.leader?.result?.payload;
+    if (typeof rawPayload === "string") {
+      try {
+        const decoded = Buffer.from(rawPayload, "base64").toString("utf-8");
+        const m = decoded.match(/\[(EXPECTED|EXTERNAL|TRANSIENT|LLM_ERROR)\][^\n]*/);
+        if (m) reason = m[0];
+      } catch {}
+    }
+    if (!reason) {
+      const stderr = String(w.leader?.genvm_result?.stderr ?? "");
+      const m = stderr.match(/\[(EXPECTED|EXTERNAL|TRANSIENT|LLM_ERROR)\][^\n]*/);
+      if (m) reason = m[0];
+    }
+    if (reason && (!expectFragment || reason.includes(expectFragment))) {
+      log(`WALL ${label}: refused — "${reason.slice(0, 160)}"`);
+    } else if (reason) {
+      log(`WALL ${label}: refused, but with an UNEXPECTED sentence — "${reason.slice(0, 160)}" (wanted "${expectFragment}")`);
+      failures.push(`wall wrong reason: ${label}`);
     } else {
       log(`WALL ${label}: refused, but the reason was unavailable — UNPROVEN`);
       unproven.push(label);

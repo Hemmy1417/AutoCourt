@@ -565,16 +565,18 @@ def _derive_claim(claim: dict, findings: list, items_by_id: dict,
         "adverse": adverse,
         "confidence": confidence,
         "next_action": next_action,
-        "supporting": sorted(e["evidence_id"] for e in support),
-        "contradicting": sorted(e["evidence_id"] for e in contradict),
         "support_classes": sorted(s_classes),
         "contradict_classes": sorted(c_classes),
-        # The sufficiency cut is deliberately NOT stored here: it is
-        # consulted at exactly two gates (VERIFIED, and CONTRADICTED vs
-        # INCONCLUSIVE), and where it is material its effect is fully
-        # absorbed into the verdict — which IS compared. Storing the raw
-        # cut put an immaterial judgment inside equivalence, and a live
-        # round split on it while deriving identical verdicts.
+        # Two things are deliberately NOT stored here, each after a live
+        # round split on it while both sides derived identical reports:
+        # the raw sufficiency cut (consulted at exactly two gates, its
+        # effect fully absorbed into the verdict — which IS compared),
+        # and the raw citation id lists (the derivation consumes only
+        # the deduped CLASS projection above; one family reading one
+        # more document as supportive — same account, same class, same
+        # verdict — is judgment shading, not a consequence). The
+        # citations live in the run's stored findings, leader-authored
+        # panel narrative rendered as such.
     }
 
 
@@ -1532,46 +1534,36 @@ Respond ONLY with JSON:
                       "the leader's own findings")
                 return False
 
-            # THE DECISION CUT is inside equivalence: which items bear on
-            # which claims and in which direction, the severe/not cut,
-            # the sufficient/not cut, explanation states, the diagnostic
-            # bools — exactly the inputs the derivation reads. Judgment
-            # SHADINGS (severity band wording, PARTIAL vs INSUFFICIENT)
-            # stay free, because model families split on shadings while
-            # agreeing on decisions. Quotes must ground in the shared
-            # stored record; prose stays free.
-            severe = ("MAJOR", "SAFETY_CRITICAL")
+            # CONSENSUS IS REQUIRED ON WHAT HAS A CONSEQUENCE — AND ONLY
+            # THAT. Every consequence of the panel's findings (direction
+            # per edge, the severe cut, sufficiency, explanation states,
+            # the diagnostic bools, which CLASSES of voice spoke) flows
+            # through _derive_report into the report compared above and
+            # re-derived from the leader's own inputs. Three live rounds
+            # taught this, in order: exact severity bands and three-way
+            # sufficiency split model families deriving identical
+            # decisions; the stored sufficiency cut split a round while
+            # both reports matched; and a marginal CITATION — one family
+            # reading one more document as supportive, same account, same
+            # class, same verdict — split an appeal round with nothing
+            # derived at stake. So no finding shading is compared
+            # separately here.
+            #
+            # What a rerun cannot vouch for is INTEGRITY of the leader's
+            # stored narrative — the fabricated-dossier gate: every
+            # non-ABSENT finding the leader stores must carry quotes that
+            # ground in the shared stored record.
             for cid in claim_ids:
-                m_rows = {f["evidence_id"]: f
-                          for f in mine["findings"].get(cid, [])}
                 t_rows_list = t_findings.get(cid)
                 if not isinstance(t_rows_list, list):
                     print(f"[DISAGREE] {cid}: leader findings missing")
                     return False
-                t_rows = {}
-                for f in t_rows_list:
-                    if not isinstance(f, dict):
+                for t_f in t_rows_list:
+                    if not isinstance(t_f, dict):
                         return False
-                    t_rows[str(f.get("evidence_id"))] = f
-                if set(m_rows.keys()) != set(t_rows.keys()):
-                    print(f"[DISAGREE] {cid}: decisive edges differ — "
-                          f"mine {sorted(m_rows)} vs leader "
-                          f"{sorted(t_rows)}")
-                    return False
-                for eid, m_f in m_rows.items():
-                    t_f = t_rows[eid]
-                    if m_f["status"] != t_f.get("status"):
-                        print(f"[DISAGREE] {cid}/{eid}: direction — mine "
-                              f"{m_f['status']} vs leader "
-                              f"{t_f.get('status')}")
-                        return False
-                    m_sev = m_f["severity"] in severe
-                    t_sev = str(t_f.get("severity", "")) in severe
-                    if m_sev != t_sev:
-                        print(f"[DISAGREE] {cid}/{eid}: severe-cut — mine "
-                              f"{m_f['severity']} vs leader "
-                              f"{t_f.get('severity')}")
-                        return False
+                    if str(t_f.get("status", "")) == "ABSENT":
+                        continue
+                    eid = str(t_f.get("evidence_id"))
                     t_quotes = t_f.get("quotes", [])
                     if not isinstance(t_quotes, list) or len(t_quotes) == 0:
                         print(f"[DISAGREE] {cid}/{eid}: leader finding "
@@ -1584,24 +1576,6 @@ Respond ONLY with JSON:
                                   "does not ground in the stored record: "
                                   f"{str(q)[:160]}")
                             return False
-                # The sufficiency judgment is NOT compared here: where it
-                # is material it moves the verdict (compared above, and
-                # re-derived from the leader's own inputs); where it is
-                # not, comparing it would burn rounds on metadata.
-            for conflict_id in mine["explanations"]:
-                if mine["explanations"][conflict_id] != \
-                        t_expl.get(conflict_id):
-                    print(f"[DISAGREE] {conflict_id}: explanation — mine "
-                          f"{mine['explanations'][conflict_id]} vs leader "
-                          f"{t_expl.get(conflict_id)}")
-                    return False
-            for key in ("supported", "safety_critical"):
-                if bool(mine["diagnostic"].get(key)) != \
-                        bool(t_diag.get(key)):
-                    print(f"[DISAGREE] diagnostic.{key} — mine "
-                          f"{mine['diagnostic'].get(key)} vs leader "
-                          f"{t_diag.get(key)}")
-                    return False
             return True
 
         out = gl.vm.run_nondet(judge, validator_fn)

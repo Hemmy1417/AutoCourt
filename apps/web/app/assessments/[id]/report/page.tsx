@@ -41,8 +41,6 @@ interface ClaimResult {
   adverse: boolean;
   confidence: string;
   next_action: string;
-  supporting: string[];
-  contradicting: string[];
   support_classes: string[];
   contradict_classes: string[];
 }

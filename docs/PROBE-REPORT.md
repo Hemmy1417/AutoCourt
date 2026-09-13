@@ -89,6 +89,43 @@ longer compares it separately — consensus is required on what has a
 consequence, and only that. Two direct tests pin both directions
 (immaterial difference survives; the same difference with an INDEPENDENT
 anchor on the record moves the VERIFIED gate and refuses). A changed
-contract is a new address: the deployment of record is
-`0xE9d81837Ca4af3bdbCE3393556597D308f6aC6a9`, and `0x214821A6…5555` is
-recorded here as superseded.
+contract is a new address: `0xE9d81837Ca4af3bdbCE3393556597D308f6aC6a9`
+succeeded it, and `0x214821A6…5555` is recorded here as superseded.
+
+## The citation round (the same lesson's third face)
+
+`0xE9d81837…C6a9` carried its arc through both acts cleanly — the sale
+record derived PARTIALLY_VERIFIED with every floor holding, the rollback
+record derived POSSIBLE_ODOMETER_ROLLBACK from typed rows — and then the
+APPEAL round split: tx
+`0xbdb157ca0d4e8a3a3919b4f640a699c80c1af274aaa644d09a4e3191f9b556b1`,
+UNDETERMINED · MAJORITY_DISAGREE, three validators printing
+`[DISAGREE] derived report differs` with both reports in stdout. The two
+reports differed in ONE token: this validator read the buyer's history
+record as also supporting the mileage claim (`"supporting":
+["E-HIST","E-SVC"]` vs the leader's `["E-SVC"]`) — same account voices,
+same class projection, same verdict, same confidence, same rollup. The
+derivation consumes citations only through the deduped CLASS projection;
+a marginal citation is judgment shading with nothing derived at stake,
+and the report was storing it (and the validator separately comparing
+edge sets) anyway.
+
+Fix, completing the principle: the report stores the class projections
+and drops raw citation id lists (the run's stored findings keep the
+citations as leader-authored panel narrative); the validator's separate
+shading comparisons — edge sets, per-edge direction and severity,
+explanation states, diagnostic bools — are removed, because every
+consequence of every one of them flows through the derived report, which
+is compared exactly and re-derived from the leader's own inputs. What
+stays outside the report comparison is exactly what a rerun cannot vouch
+for: every non-ABSENT leader finding must still carry quotes that ground
+in the shared stored record (the fabricated-dossier gate). Four direct
+tests pin both directions for citations and for explanation shadings,
+and two scratch-copy mutants (old report shape; old explanation
+comparison) each fail exactly their intended test.
+
+The deployment of record is
+**`0x283E59d0DaA5080Ac0DC8371B7D44f04f8163c30`** (byte-verified, source
+sha256 `3aef79ec…f0d8`); `0xE9d81837…C6a9` is recorded here as
+superseded, its two clean acts and its diagnosing appeal round intact on
+the explorer.

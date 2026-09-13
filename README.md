@@ -17,11 +17,11 @@
 
 | | |
 |---|---|
-| Contract | [`0xE9d81837Ca4af3bdbCE3393556597D308f6aC6a9`](https://explorer-studio-dev.genlayer.com/address/0xE9d81837Ca4af3bdbCE3393556597D308f6aC6a9) |
+| Contract | [`0x283E59d0DaA5080Ac0DC8371B7D44f04f8163c30`](https://explorer-studio-dev.genlayer.com/address/0x283E59d0DaA5080Ac0DC8371B7D44f04f8163c30) |
 | Network | GenLayer Studio Next, chain 61997 |
 | RPC | `https://studio-next.genlayer.com/api` |
-| Source | [`contracts/autocourt_assessment.py`](contracts/autocourt_assessment.py) — byte-verified: `node scripts/deploy.mjs verify 0xE9d81837…C6a9` reports byte-for-byte identity (sha256 `5c630f1b…68bc`) |
-| Superseded | `0x214821A6…5555` — the first canonical deploy; its opening arc round split on an immaterial sufficiency bit (PROBE-REPORT), the materiality fix changed the contract, and a changed contract is a new address |
+| Source | [`contracts/autocourt_assessment.py`](contracts/autocourt_assessment.py) — byte-verified: `node scripts/deploy.mjs verify 0x283E59d0…3c30` reports byte-for-byte identity (sha256 `3aef79ec…f0d8`) |
+| Superseded | `0x214821A6…5555` (opening round split on an immaterial sufficiency bit), then `0xE9d81837…C6a9` (its appeal round split on one marginal citation while every derived field agreed) — each split is documented with its receipts in [PROBE-REPORT](docs/PROBE-REPORT.md), each fix changed the contract, and a changed contract is a new address |
 | Anchor allowlist | `["raw.githubusercontent.com"]` — the proven independent evidence host on this network, standing in for vehicle registries; visible in `get_config()`, and `VERIFIED` is reachable only through it |
 
 ## What the contract owns, and what it refuses to
