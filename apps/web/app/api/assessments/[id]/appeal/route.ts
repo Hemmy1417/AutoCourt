@@ -1,6 +1,7 @@
 import { prisma } from "@autocourt/db";
 
 import { clientIp, requireUser } from "../../../../../lib/auth.js";
+import { maxRunsPerAssessment } from "../../../../../lib/chainconfig.js";
 import {
   badRequest,
   conflict,
@@ -31,6 +32,18 @@ export async function POST(
     const { assessment } = await requireAccess(id, user.id);
     if (assessment.state !== "ADJUDICATED")
       throw conflict(`an appeal needs a standing verdict (state: ${assessment.state})`);
+    // The runs cap belongs to the contract, and the contract enforces it.
+    // Checking here too is not redundant: without it the appeal is
+    // accepted, evidence is written on chain, and only the readjudicate
+    // job fails — leaving the record carrying items filed for an appeal
+    // that could never happen. If the cap cannot be read, do NOT guess:
+    // let it through and let the contract refuse for itself.
+    const maxRuns = await maxRunsPerAssessment();
+    const successRuns = assessment.runs.filter((r) => r.status === "SUCCESS").length;
+    if (maxRuns !== null && successRuns >= maxRuns)
+      throw conflict(
+        `this record already holds the ${maxRuns} runs the contract allows`,
+      );
     const body = await req.json().catch(() => null);
     const grounds = String(body?.grounds ?? "").trim();
     if (grounds.length < 1 || grounds.length > 1200)

@@ -89,6 +89,23 @@ describe("appeal gate", () => {
       ).reason,
     ).toMatch(/at most 4 runs/);
   });
+
+  it("an unreadable cap does not deny an appeal the contract might allow", () => {
+    // The screen passes Infinity when get_config could not be reached.
+    // Inventing a limit here would refuse a legitimate appeal over an
+    // RPC hiccup; the contract refuses for itself either way.
+    expect(
+      act(
+        {
+          state: "ADJUDICATED",
+          successRuns: 9,
+          maxRuns: Number.POSITIVE_INFINITY,
+          newAppealEvidenceCount: 1,
+        },
+        "appeal",
+      ).available,
+    ).toBe(true);
+  });
 });
 
 describe("role floors in the UI mirror the contract", () => {

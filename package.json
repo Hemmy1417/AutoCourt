@@ -11,6 +11,7 @@
     "lint": "eslint .",
     "test:e2e": "playwright test",
     "build": "tsc -b && next build apps/web",
+    "start": "next start apps/web -p 3108",
     "worker": "tsc -b && node apps/worker/dist/index.js"
   },
   "devDependencies": {

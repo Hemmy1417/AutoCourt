@@ -1,4 +1,5 @@
 import { requireUser } from "../../../../lib/auth.js";
+import { maxRunsPerAssessment } from "../../../../lib/chainconfig.js";
 import { errorResponse } from "../../../../lib/errors.js";
 import { requireAccess } from "../../../../lib/service.js";
 
@@ -16,6 +17,10 @@ export async function GET(
     return Response.json({
       ...assessment,
       myRole: role,
+      // The run limit travels with the record so the screen never has to
+      // remember it. null means the contract was unreachable, which the
+      // UI must show as unknown rather than as a number it made up.
+      maxRuns: await maxRunsPerAssessment(),
       evidenceItems: assessment.evidenceItems.map((it) => ({
         ...it,
         extraction: it.extraction

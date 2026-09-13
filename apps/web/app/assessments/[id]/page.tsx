@@ -38,6 +38,7 @@ interface Detail {
   onChainId: string | null;
   identityStatus: string;
   registryJson: string;
+  maxRuns: number | null;
   myRole: "SELLER" | "BUYER";
   packetVersion: number;
   vehicle: {
@@ -152,7 +153,10 @@ export default function AssessmentDossier() {
       (i) => i.status === "PENDING_ENTRY",
     ).length,
     successRuns,
-    maxRuns: 4,
+    // From the contract, never from memory. If it could not be read,
+    // do not block the act — the contract refuses for itself, and a
+    // guess here would deny an appeal the contract would have allowed.
+    maxRuns: detail.maxRuns ?? Number.POSITIVE_INFINITY,
     newAppealEvidenceCount: detail.evidenceItems.filter(
       (i) => !i.onChainTxHash && detail.state === "ADJUDICATED",
     ).length,
