@@ -54,7 +54,21 @@ async function connectWallet(page: Page, pk: `0x${string}`, name: string) {
 test("the seller-to-buyer journey holds end to end", async ({ browser }) => {
   const sellerCtx = await browser.newContext();
   const seller = await sellerCtx.newPage();
+
+  // The landing page a stranger meets, before any wallet exists.
+  await seller.goto("/");
+  await expect(
+    seller.getByRole("heading", { name: /Buy the car/i }),
+  ).toBeVisible();
+  await expect(
+    seller.getByRole("link", { name: /Start an assessment/i }).first(),
+  ).toBeVisible();
+
   await connectWallet(seller, SELLER_PK, "Sada the seller");
+  // Signed in, the dashboard is honestly empty rather than broken.
+  await expect(
+    seller.getByRole("heading", { name: /Your assessments/i }),
+  ).toBeVisible();
 
   // List the vehicle with two claims.
   await seller.goto("/vehicles/new");
@@ -87,9 +101,37 @@ test("the seller-to-buyer journey holds end to end", async ({ browser }) => {
     seller.getByText(/still need the publicity consent/),
   ).toBeVisible();
 
-  // Redact the card number BEFORE consent (afterwards it is impossible).
+  // ACTUALLY redact the card number before consent — afterwards it is
+  // impossible, and this is the product's privacy centrepiece.
   await seller.getByRole("button", { name: "Review text" }).click();
   await expect(seller.getByText(/card ending 4417/)).toBeVisible();
+  await seller.getByRole("button", { name: "Redact" }).click();
+  const extract = seller.locator("textarea");
+  await expect(extract).toBeVisible();
+  // Select exactly the card passage in the NORMALIZED text the panel shows.
+  const cardSpan = await extract.evaluate((el: HTMLTextAreaElement) => {
+    const start = el.value.indexOf("card ending 4417");
+    const end = start + "card ending 4417".length;
+    el.focus();
+    el.setSelectionRange(start, end);
+    // React's onSelect is a synthetic event driven by mouse/key/selection
+    // activity, not by a dispatched "select" — so mimic the real gesture.
+    el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    document.dispatchEvent(new Event("selectionchange"));
+    return { start, end };
+  });
+  expect(cardSpan.start).toBeGreaterThan(0);
+  await seller.getByRole("button", { name: "Add span" }).click();
+  await expect(
+    seller.getByText(`${cardSpan.start}–${cardSpan.end}`),
+  ).toBeVisible();
+  await seller.getByRole("button", { name: /Apply \d+ redaction/ }).click();
+  // The item reports itself redacted, and the card number is gone from
+  // the bytes that will be published.
+  await expect(seller.getByText("redacted").first()).toBeVisible();
+  // The review panel stays open on the re-hashed text — no re-click.
+  await expect(seller.getByText(/card ending 4417/)).toHaveCount(0);
+  await expect(seller.getByText(/\[REDACTED\]/)).toBeVisible();
 
   // Typed rows: the reading the contract recomputes conflicts from.
   // Two date inputs exist on this screen (the typed row's, then the
