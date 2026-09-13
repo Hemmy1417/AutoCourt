@@ -7,40 +7,77 @@ import { api } from "../components/api";
 import { ErrorNotice, Spinner } from "../components/bits";
 import { Logo } from "../components/Logo";
 
-declare global {
-  interface Window {
-    ethereum?: {
-      request: (args: {
-        method: string;
-        params?: unknown[];
-      }) => Promise<unknown>;
-    };
-  }
+interface Eip1193Provider {
+  request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
+}
+
+interface DiscoveredWallet {
+  info: { uuid: string; name: string; icon: string; rdns: string };
+  provider: Eip1193Provider;
 }
 
 // Screen 2 — wallet sign-in. The account IS the address: an EIP-191
 // signature over a server nonce proves control; no transaction is sent.
+//
+// Wallets are found through EIP-6963 discovery (the multi-wallet-safe
+// path — several extensions fight over window.ethereum, and some no
+// longer inject it at all), with a legacy window.ethereum fallback for
+// wallets that never announce.
 function AuthInner() {
   const router = useRouter();
   const params = useSearchParams();
   const next = params.get("next") ?? "/dashboard";
-  const [hasWallet, setHasWallet] = useState<boolean | null>(null);
+  const [wallets, setWallets] = useState<DiscoveredWallet[]>([]);
+  const [scanned, setScanned] = useState(false);
   const [displayName, setDisplayName] = useState("");
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
 
   useEffect(() => {
-    setHasWallet(typeof window !== "undefined" && Boolean(window.ethereum));
+    function onAnnounce(e: Event) {
+      const d = (e as CustomEvent).detail as DiscoveredWallet;
+      if (!d?.info?.uuid || typeof d.provider?.request !== "function") return;
+      setWallets((prev) =>
+        prev.some((w) => w.info.uuid === d.info.uuid) ? prev : [...prev, d],
+      );
+    }
+    window.addEventListener("eip6963:announceProvider", onAnnounce);
+    window.dispatchEvent(new Event("eip6963:requestProvider"));
+    const t = setTimeout(() => {
+      const eth = (window as unknown as { ethereum?: Eip1193Provider })
+        .ethereum;
+      if (eth && typeof eth.request === "function") {
+        setWallets((prev) =>
+          prev.length
+            ? prev
+            : [
+                {
+                  info: {
+                    uuid: "legacy",
+                    name: "Browser wallet",
+                    icon: "",
+                    rdns: "legacy.injected",
+                  },
+                  provider: eth,
+                },
+              ],
+        );
+      }
+      setScanned(true);
+    }, 400);
+    return () => {
+      window.removeEventListener("eip6963:announceProvider", onAnnounce);
+      clearTimeout(t);
+    };
   }, []);
 
-  async function connect() {
-    if (!window.ethereum) return;
+  async function connect(provider: Eip1193Provider) {
     setBusy(true);
     setError(null);
     try {
       setStep("asking your wallet for an account…");
-      const accounts = (await window.ethereum.request({
+      const accounts = (await provider.request({
         method: "eth_requestAccounts",
       })) as string[];
       const address = accounts?.[0];
@@ -51,7 +88,7 @@ function AuthInner() {
         { method: "POST", body: JSON.stringify({ address }) },
       );
       setStep("waiting for your signature…");
-      const signature = (await window.ethereum.request({
+      const signature = (await provider.request({
         method: "personal_sign",
         params: [message, address],
       })) as string;
@@ -91,19 +128,51 @@ function AuthInner() {
           />
         </div>
         <ErrorNotice error={error} />
-        {hasWallet === false ? (
+        {scanned && wallets.length === 0 ? (
           <div className="notice notice-warn" style={{ marginTop: 12 }}>
             No wallet extension detected. Install MetaMask (or any
             EIP-1193 wallet), then reload this page.
+          </div>
+        ) : wallets.length > 1 ? (
+          <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
+            {wallets.map((w) => (
+              <button
+                key={w.info.uuid}
+                className="btn btn-primary"
+                style={{ width: "100%" }}
+                disabled={busy}
+                onClick={() => connect(w.provider)}
+              >
+                {busy ? <Spinner /> : <>
+                  {w.info.icon ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={w.info.icon}
+                      alt=""
+                      width={18}
+                      height={18}
+                      style={{ marginRight: 8, verticalAlign: "-3px" }}
+                    />
+                  ) : null}
+                  Sign in with {w.info.name}
+                </>}
+              </button>
+            ))}
           </div>
         ) : (
           <button
             className="btn btn-primary"
             style={{ width: "100%", marginTop: 12 }}
-            disabled={busy || hasWallet === null}
-            onClick={connect}
+            disabled={busy || wallets.length === 0}
+            onClick={() => wallets[0] && connect(wallets[0].provider)}
           >
-            {busy ? <Spinner /> : "Connect wallet & sign in"}
+            {busy ? (
+              <Spinner />
+            ) : wallets.length === 0 ? (
+              "Looking for wallets…"
+            ) : (
+              `Connect ${wallets[0]?.info.name ?? "wallet"} & sign in`
+            )}
           </button>
         )}
         {step ? (

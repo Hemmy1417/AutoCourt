@@ -109,11 +109,13 @@ async function mustRefuse(fn, args, label, expectFragment) {
       failures.push(`wall accepted: ${label}`);
       return;
     }
-    // The refusal sentence lives in leader_receipt.result.payload:
-    // base64 whose decoded bytes are a control byte + the printable
-    // UserError text (the leader-payload lesson; stderr is empty here).
+    // The refusal sentence lives in leader_receipt.result: base64 whose
+    // decoded bytes are a control byte + the printable UserError text
+    // (the leader-payload lesson; stderr is empty here). On this network
+    // `result` IS the base64 string; older shapes wrap it as {payload}.
     let reason = "";
-    const rawPayload = w.leader?.result?.payload;
+    const r = w.leader?.result;
+    const rawPayload = typeof r === "string" ? r : r?.payload;
     if (typeof rawPayload === "string") {
       try {
         const decoded = Buffer.from(rawPayload, "base64").toString("utf-8");
@@ -321,19 +323,36 @@ await mustRefuse("readjudicate", [A1, "arc-nobody", "let me in"],
 await mustRefuse("submit_evidence_text", [A2, item("E-LATE", "late text arriving", {
   uploader: "arc-seller", role: "SELLER", cls: "SELLER_DECLARATION",
 })], "evidence after seal", "submit_appeal_evidence");
-{
-  const bad = JSON.parse(item("E-BAD", "honest text", {
-    uploader: "arc-seller", role: "SELLER", cls: "SELLER_DECLARATION" }));
-  bad.text_sha256 = sha("entirely different bytes");
-  await mustRefuse("submit_evidence_text", [A2, JSON.stringify(bad)],
-    "hash not covering the bytes", "does not match the supplied");
+
+// The hash and allowlist gates sit BEFORE the seal gate, so proving them
+// needs an OPEN record — on a sealed one the seal refusal fires first and
+// the wall would prove the wrong sentence (S38: a proof claims only what
+// its mechanism asserts). A dedicated open fixture keeps each wall honest.
+log("wall fixture: an OPEN assessment for the pre-seal gates");
+const wallCreate = await writeOnce("create_assessment", [
+  JSON.stringify({ vin: VIN, make: "Meridian", model: "GT Wagon", year: 2019,
+                   seller_account: "arc-seller" }),
+  JSON.stringify([{ type: "CONDITION", declared_value: "wall fixture — never sealed" }]),
+], "create wall fixture");
+if (!wallCreate.ok) {
+  failures.push("wall fixture creation failed");
+} else {
+  const A3 = `ac-${String((await view("get_stats", [])).assessments).padStart(6, "0")}`;
+  log(`wall fixture = ${A3}`);
+  {
+    const bad = JSON.parse(item("E-BAD", "honest text", {
+      uploader: "arc-seller", role: "SELLER", cls: "SELLER_DECLARATION" }));
+    bad.text_sha256 = sha("entirely different bytes");
+    await mustRefuse("submit_evidence_text", [A3, JSON.stringify(bad)],
+      "hash not covering the bytes", "does not match the supplied");
+  }
+  await mustRefuse("submit_anchor_item", [A3, JSON.stringify({
+    evidence_id: "E-EVIL", declared_class: "EXTERNAL_SOURCE_RESULT",
+    declared_label: "seller's own site",
+    url: "https://seller-controlled.example.com/page",
+    expected_sha256: sha("x"),
+  })], "anchor off the allowlist", "allowlist");
 }
-await mustRefuse("submit_anchor_item", [A2, JSON.stringify({
-  evidence_id: "E-EVIL", declared_class: "EXTERNAL_SOURCE_RESULT",
-  declared_label: "seller's own site",
-  url: "https://seller-controlled.example.com/page",
-  expected_sha256: sha("x"),
-})], "anchor off the allowlist", "allowlist");
 
 // ── CLOSE ───────────────────────────────────────────────────────────────────
 console.log("\n================== ARC REPORT ==================");
