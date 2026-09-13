@@ -3,7 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
-import { api } from "../components/api";
+import { api, type Me } from "../components/api";
 import { ErrorNotice, Spinner } from "../components/bits";
 import { Logo } from "../components/Logo";
 
@@ -33,6 +33,21 @@ function AuthInner() {
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
+
+  // Already signed in? Then this page has nothing to ask. Whatever link
+  // led here — a bookmark, the back button, a stale CTA — forward it
+  // rather than prompting the wallet a second time.
+  useEffect(() => {
+    let cancelled = false;
+    api<Me>("/api/me")
+      .then(() => {
+        if (!cancelled) router.replace(next);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [next, router]);
 
   useEffect(() => {
     function onAnnounce(e: Event) {

@@ -55,20 +55,36 @@ test("the seller-to-buyer journey holds end to end", async ({ browser }) => {
   const sellerCtx = await browser.newContext();
   const seller = await sellerCtx.newPage();
 
-  // The landing page a stranger meets, before any wallet exists.
+  // The landing page a stranger meets, before any wallet exists: its
+  // call to action must lead to sign-in.
   await seller.goto("/");
   await expect(
     seller.getByRole("heading", { name: /Buy the car/i }),
   ).toBeVisible();
   await expect(
     seller.getByRole("link", { name: /Start an assessment/i }).first(),
-  ).toBeVisible();
+  ).toHaveAttribute("href", /\/auth/);
 
   await connectWallet(seller, SELLER_PK, "Sada the seller");
-  // Signed in, the dashboard is honestly empty rather than broken.
+  // Signed in, the dashboard renders. (Whether it is EMPTY depends on
+  // what earlier runs left in this database, so the first-run copy is
+  // not asserted here — that would be a state-dependent flake.)
   await expect(
     seller.getByRole("heading", { name: /Your assessments/i }),
   ).toBeVisible();
+
+  // THE BUG THIS PINS: signed in, the landing CTA must NOT send you back
+  // to the connect-wallet screen. It did, every single time.
+  await seller.goto("/");
+  await expect(
+    seller.getByRole("link", { name: /Start an assessment/i }).first(),
+  ).toHaveAttribute("href", "/vehicles/new");
+  // And /auth itself forwards an existing session instead of asking again.
+  await seller.goto("/auth?next=/vehicles/new");
+  await seller.waitForURL("**/vehicles/new");
+  await expect(
+    seller.getByText(/Connect your wallet/i),
+  ).toHaveCount(0);
 
   // List the vehicle with two claims.
   await seller.goto("/vehicles/new");

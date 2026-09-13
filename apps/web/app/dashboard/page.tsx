@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { api } from "../components/api";
-import { Empty, ErrorNotice, Spinner, StateChip } from "../components/bits";
+import { ErrorNotice, Spinner, StateChip } from "../components/bits";
 
 interface AssessmentRow {
   id: string;
@@ -60,10 +60,25 @@ export default function Dashboard() {
           <Spinner />
         </div>
       ) : rows.length === 0 ? (
-        <Empty>
-          Nothing on the record yet. List a vehicle to open your first
-          assessment — or redeem a share link a seller sent you.
-        </Empty>
+        <div className="card" style={{ padding: 28 }}>
+          <h3>Nothing on the record yet</h3>
+          <p className="muted small" style={{ marginTop: 8, maxWidth: 560 }}>
+            Your wallet is your account, so this page shows only the
+            assessments you are a party to. An empty page here means this
+            wallet has not opened or been shared one — not that anything
+            is wrong.
+          </p>
+          <div className="row" style={{ marginTop: 18, flexWrap: "wrap" }}>
+            <Link href="/vehicles/new" className="btn btn-primary">
+              List a vehicle
+            </Link>
+          </div>
+          <p className="muted" style={{ fontSize: 12.5, marginTop: 16 }}>
+            Sent a report? Open the share link the seller gave you and it
+            will appear here — you can add counter-evidence and dispute a
+            claim in your own name.
+          </p>
+        </div>
       ) : (
         <div className="grid grid-2">
           {rows.map((a) => (

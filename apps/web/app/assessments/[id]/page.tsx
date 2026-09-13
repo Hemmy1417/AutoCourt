@@ -1164,10 +1164,24 @@ async function signAttestation(opts: {
     }, 400);
   });
   if (!provider) return "";
-  const accounts = (await provider.request({
-    method: "eth_requestAccounts",
-  })) as string[];
-  const address = accounts?.[0];
+  // Ask SILENTLY first. eth_accounts returns the already-permitted
+  // account without a popup; only fall back to eth_requestAccounts when
+  // the wallet genuinely has not authorised this site yet. Asking
+  // unconditionally is what makes an app feel like it keeps demanding
+  // you reconnect.
+  let address: string | undefined;
+  try {
+    const known = (await provider.request({ method: "eth_accounts" })) as string[];
+    address = known?.[0];
+  } catch {
+    address = undefined;
+  }
+  if (!address) {
+    const accounts = (await provider.request({
+      method: "eth_requestAccounts",
+    })) as string[];
+    address = accounts?.[0];
+  }
   if (!address) return "";
   return (await provider.request({
     method: "personal_sign",

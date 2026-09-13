@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { Logo } from "./components/Logo";
+import { StartLinks } from "./components/StartLinks";
 
 // Screen 1 — landing. Marketplace-warm, verdict-serious.
 export default function Landing() {
@@ -26,14 +27,7 @@ export default function Landing() {
             derives every verdict. Nobody, including us, gets to author the
             outcome.
           </p>
-          <div className="row" style={{ marginTop: 28 }}>
-            <Link href="/auth" className="btn btn-primary">
-              Start an assessment
-            </Link>
-            <Link href="/auth" className="btn btn-ghost">
-              I was sent a report
-            </Link>
-          </div>
+          <StartLinks />
         </div>
       </section>
 
