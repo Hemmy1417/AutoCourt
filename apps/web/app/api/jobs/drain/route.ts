@@ -1,9 +1,8 @@
-import { runPendingJobs } from "@autocourt/worker-core";
+import { recordJobEffects, runPendingJobs } from "@autocourt/worker-core";
 import { timingSafeEqual } from "node:crypto";
 
 import { chain } from "../../../../lib/chain.js";
 import { ApiError, errorResponse } from "../../../../lib/errors.js";
-import { recordJobEffects } from "../../../../lib/jobeffects.js";
 
 /**
  * The serverless mover (S26): a platform cron hits this route on a fixed

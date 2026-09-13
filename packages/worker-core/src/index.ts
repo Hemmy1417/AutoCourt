@@ -243,3 +243,5 @@ export async function runPendingJobs(deps: WorkerDeps): Promise<DrainResult> {
   }
   return result;
 }
+
+export { recordJobEffects, type EffectsResult } from "./effects.js";

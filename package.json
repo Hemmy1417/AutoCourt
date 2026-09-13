@@ -9,7 +9,9 @@
     "test": "vitest run",
     "typecheck": "tsc -b",
     "lint": "eslint .",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "build": "tsc -b && next build apps/web",
+    "worker": "tsc -b && node apps/worker/dist/index.js"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",

@@ -81,6 +81,9 @@ jobs:
       - run: npm ci
       - run: npx prisma generate --schema packages/db/prisma/schema.prisma
       - run: npx prisma migrate deploy --schema packages/db/prisma/schema.prisma
+      # Packages resolve to their COMPILED output, so the build must
+      # follow tsc -b; a stale dist would silently ship old code.
+      - run: npx tsc -b
       - run: npx next build apps/web
       - run: npx playwright install --with-deps chromium
       - run: npx playwright test

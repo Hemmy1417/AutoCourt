@@ -1,4 +1,9 @@
 /**
+ * Post-drain effect recording. Lives in worker-core, NOT in the web app:
+ * both movers need it — the serverless drain route and the long-lived
+ * apps/worker — and while it sat under apps/web/lib the worker could not
+ * resolve it at all. That is why apps/worker had never once run.
+ *
  * Post-drain effect recording: DONE jobs update the rows their outcome
  * proves. Separate from worker-core so the drainer stays a pure
  * queue-to-chain bridge and every DB effect lives in one place.
