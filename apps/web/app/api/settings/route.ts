@@ -41,7 +41,11 @@ export async function GET(req: Request): Promise<Response> {
       }),
     ]);
     return Response.json({
-      profile: { id: user.id, email: user.email, displayName: user.displayName },
+      profile: {
+        id: user.id,
+        walletAddress: user.walletAddress,
+        displayName: user.displayName,
+      },
       currentSessionId: user.sessionId,
       sessions,
       evidence,

@@ -56,14 +56,18 @@ export async function recordJobEffects(
   //    into every later job payload for this assessment.
   const doneCreates = await prisma.job.findMany({
     where: { kind: "CREATE", state: "DONE" },
-    include: { assessment: { include: { vehicle: true } } },
+    include: {
+      assessment: {
+        include: { vehicle: { include: { seller: true } } },
+      },
+    },
   });
   for (const job of doneCreates) {
     if (job.assessment.onChainId) continue;
     const onChainId = await resolveOnChainId(
       chainClient,
       job.assessment.vehicle.vin,
-      job.assessment.vehicle.sellerId,
+      job.assessment.vehicle.seller.walletAddress,
     );
     if (!onChainId) continue;
     await prisma.assessment.update({

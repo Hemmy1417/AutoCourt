@@ -57,7 +57,7 @@ export async function POST(
         evidenceId: i.evidenceId,
         declaredClass: i.declaredClass,
         declaredLabel: i.declaredLabel,
-        uploaderAccount: i.uploaderId,
+        uploaderAccount: i.uploader.walletAddress,
         uploaderRole: i.uploaderRole as "SELLER" | "BUYER",
         fileSha256: i.fileSha256,
         normalizedText: i.extraction?.normalizedText ?? "",
@@ -83,7 +83,7 @@ export async function POST(
       });
     }
     await enqueueJob(id, "READJUDICATE", {
-      appellantAccount: user.id,
+      appellantAccount: user.walletAddress,
       grounds,
     });
     const appeal = await prisma.appeal.create({

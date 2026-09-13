@@ -15,8 +15,8 @@
     "@autocourt/shared-types": "*",
     "@autocourt/validation": "*",
     "@autocourt/worker-core": "*",
-    "@node-rs/argon2": "^2.0.2",
     "next": "^15.1.0",
+    "viem": "^2.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

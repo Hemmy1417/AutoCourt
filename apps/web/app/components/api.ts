@@ -4,8 +4,13 @@
 
 export interface Me {
   id: string;
-  email: string;
+  walletAddress: string;
   displayName: string;
+}
+
+export function shortAddress(a: string | null | undefined): string {
+  if (!a) return "—";
+  return a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a;
 }
 
 export class ApiFailure extends Error {

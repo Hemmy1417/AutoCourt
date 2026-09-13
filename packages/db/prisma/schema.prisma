@@ -12,12 +12,15 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Wallet-based identity: the account IS an address, proven by an EIP-191
+// signature at sign-in. Still self-attested (anyone can mint wallets) —
+// the contract's same-account rules and VERIFIED-requires-INDEPENDENT
+// floor are what make a second wallet worthless, and the docs say so.
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  passwordHash String // argon2id
-  displayName  String
-  createdAt    DateTime @default(now())
+  id            String   @id @default(cuid())
+  walletAddress String   @unique // lowercased 0x…
+  displayName   String   @default("")
+  createdAt     DateTime @default(now())
 
   vehicles      Vehicle[]
   evidenceItems EvidenceItem[]

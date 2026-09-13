@@ -6,7 +6,7 @@ export async function GET(req: Request): Promise<Response> {
     const user = await requireUser(req);
     return Response.json({
       id: user.id,
-      email: user.email,
+      walletAddress: user.walletAddress,
       displayName: user.displayName,
     });
   } catch (e) {

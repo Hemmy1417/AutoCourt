@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { Logo } from "./Logo";
-import { api, type Me } from "./api";
+import { api, shortAddress, type Me } from "./api";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard" },
@@ -55,14 +55,18 @@ export function Shell({ children }: { children: ReactNode }) {
             <span className="netpill">GenLayer · Studio Next · 61997</span>
             {me === undefined ? null : me ? (
               <>
-                <span className="small muted">{me.displayName}</span>
+                <span className="netpill" title={me.walletAddress}>
+                  {me.displayName
+                    ? `${me.displayName} · ${shortAddress(me.walletAddress)}`
+                    : shortAddress(me.walletAddress)}
+                </span>
                 <button className="btn btn-quiet" onClick={signOut}>
                   Sign out
                 </button>
               </>
             ) : (
               <Link className="btn btn-ghost" href="/auth">
-                Sign in
+                Connect wallet
               </Link>
             )}
           </div>

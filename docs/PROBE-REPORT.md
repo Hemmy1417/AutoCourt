@@ -49,7 +49,22 @@ item shape with byte-identical read-back, so every bound in
 are frozen as shipped: `PER_ITEM_TEXT_CAP 6000`, `PER_WRITE_JSON_CAP
 8000` (see ARCHITECTURE §4.6).
 
-Not probed here: the adjudication round itself (LLM consensus). That is
-the separate validator-diversity diagnostic pass, run on a disposable
-deploy before the canonical one (STANDARDS-MAP §5), with `[DISAGREE]` /
-`[DOWNGRADE]` stdout as its instrument.
+## The validator-diversity diagnostic pass (same day)
+
+The adjudication round was then measured the same way — on disposable
+deploys, before anything canonical — and it caught a real defect:
+
+| round | contract | tx | outcome |
+|---|---|---|---|
+| first attempt | `0xE71760C2…09C9` | `0xa05d867e0f0a825576eadafde13e6e61e34ac76e8d185cbbb4feb9e75512d8dd` | **UNDETERMINED · MAJORITY_DISAGREE** — validators refused the leader, and no diagnostic line said why |
+| after the fix | `0x49E7Ae72dFC015ea3ea12451Bd1adb702259eC35` | `0x2860cc2f114655e43228c50fc7cd8cea088aad2d442d75cb86e1dc602e984544` | **FINALIZED · MAJORITY_AGREE · leader SUCCESS** — standing run 1, rollup PARTIALLY_VERIFIED, both claims floored at FIRST_PARTY support exactly as the deterministic spec derives |
+
+The defect: equivalence compared judgment SHADINGS — exact severity
+bands, three-way sufficiency, and the set of ABSENT rows — which model
+families split on while agreeing on every decision. The fix narrowed
+equivalence to the decision cut the derivation actually reads (direction
+per edge, severe/not, sufficient/not, explanation states, diagnostic
+bools), dropped ABSENT rows at the boundary, and added `[DISAGREE]`
+prints at every refusal point so the next split names itself. Five
+direct tests pin both directions: shadings never burn a round, cuts
+always refuse one.

@@ -181,9 +181,9 @@ def test_unavailable_anchor_is_not_independent(module):
 SELLER_A = "acct-seller"
 
 
-def _claim(sufficiency="SUFFICIENT"):
+def _claim(sufficient=True):
     return {"claim_id": "CL-01", "type": "MILEAGE",
-            "sufficiency": sufficiency}
+            "record_sufficient": sufficient}
 
 
 def _finding(eid, status, severity="MODERATE"):
@@ -192,10 +192,9 @@ def _finding(eid, status, severity="MODERATE"):
             "quotes": [{"evidence_id": eid, "text": "grounded already"}]}
 
 
-def _derive(module, findings, items, sufficiency="SUFFICIENT",
-            disputers=None):
+def _derive(module, findings, items, sufficient=True, disputers=None):
     items_by_id = {it["evidence_id"]: it for it in items}
-    return module._derive_claim(_claim(sufficiency), findings, items_by_id,
+    return module._derive_claim(_claim(sufficient), findings, items_by_id,
                                 SELLER_A, disputers or set())
 
 
@@ -214,10 +213,10 @@ def test_independent_support_reaches_verified_with_high_confidence(module):
     assert got["adverse"] is False
 
 
-def test_partial_sufficiency_caps_independent_support(module):
+def test_insufficient_record_caps_independent_support(module):
     got = _derive(module, [_finding("E-R", "SUPPORTED")],
                   [_item("E-R", lane="ANCHOR", account="")],
-                  sufficiency="PARTIAL")
+                  sufficient=False)
     assert got["verdict"] == "PARTIALLY_VERIFIED"
 
 
@@ -287,7 +286,7 @@ def test_no_findings_is_insufficient(module):
 
 def test_qualifying_contradiction_without_sufficiency_is_inconclusive(module):
     got = _derive(module, [_finding("E-S", "CONTRADICTED")],
-                  [_item("E-S", account=SELLER_A)], sufficiency="PARTIAL")
+                  [_item("E-S", account=SELLER_A)], sufficient=False)
     assert got["verdict"] == "INCONCLUSIVE"
 
 

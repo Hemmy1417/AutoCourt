@@ -8,14 +8,16 @@ tamper-evident, not trustless.**
 
 ## The parties
 
-- **Seller** — creates the listing, declares claims, uploads most
-  evidence. The judged party controls most of the record (the S27
-  hazard); the corroboration ladder prices this rather than pretending
-  otherwise.
-- **Buyer** — reaches the assessment through a share link, uploads
-  counter-evidence, records disputes.
-- **Operator** — runs the app: authenticates accounts, stores files,
-  extracts text, assembles packets, submits transactions from its wallet.
+- **Seller** — a wallet that creates the listing, declares claims,
+  uploads most evidence. The judged party controls most of the record
+  (the S27 hazard); the corroboration ladder prices this rather than
+  pretending otherwise.
+- **Buyer** — a wallet that reaches the assessment through a share link,
+  uploads counter-evidence, records disputes.
+- **Operator** — runs the app: verifies wallet signatures, stores files,
+  extracts text, assembles packets, submits transactions from its own
+  wallet (party attribution rides in the packet as the parties'
+  addresses).
 - **Validators** — the GenLayer panel; no single validator (or the
   leader) can author what the record says.
 
@@ -37,7 +39,7 @@ tamper-evident, not trustless.**
 |---|---|
 | Operator alters or truncates extraction | Dual hashes + pinned extractor version in the on-chain manifest; originals stay downloadable to parties of the run; `scripts/verify-extraction` recomputes the text hash from the original. Detectable, not prevented — the app is the sole extractor of uploaded files. |
 | Operator omits a party's evidence or dispute | The intake receipt (`/api/assessments/:id/receipt`) shows every party their items against the CONTRACT's manifest: "in the judged record" or not. An invariant test guards the surface. |
-| Sybil accounts (one person, two inboxes) | Same-account items never corroborate; opposing-role uploads can never lift `VERIFIED` (only `INDEPENDENT` anchors can); on-chain attribution makes patterns auditable. Priced and detectable — not prevented. |
+| Sybil accounts (one person, two wallets) | Same-account items never corroborate; opposing-role uploads can never lift `VERIFIED` (only `INDEPENDENT` anchors can); on-chain attribution by wallet address makes patterns auditable. Priced and detectable — not prevented. |
 
 ## Honest limitations
 
@@ -45,9 +47,10 @@ tamper-evident, not trustless.**
   censorship-resistant: only the operator's wallet submits transactions,
   so the operator can stall an assessment or an appeal. It cannot forge
   or alter one. (A submit-from-own-wallet path is a possible future.)
-- **Account identity is app-attested.** Email+password accounts prove
-  nothing about real-world identity; identity beyond the code-validated
-  VIN is out of scope.
+- **Account identity is a wallet, and only a wallet.** An EIP-191
+  signature proves control of an address, nothing more; anyone can mint
+  addresses, and identity beyond the code-validated VIN is out of scope.
+  What makes a second wallet worthless is the contract, not the login.
 - **Extraction fidelity is testimony.** Every validator faithfully
   judges whatever the operator's pipeline produced (see detection row
   above).

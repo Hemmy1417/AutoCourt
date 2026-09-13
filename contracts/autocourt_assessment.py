@@ -457,8 +457,10 @@ def _derive_claim(claim: dict, findings: list, items_by_id: dict,
     """One claim's verdict, confidence and next action from agreed findings.
 
     findings: [{evidence_id, status, severity, quotes[]}] — already
-    boundary-validated and quote-grounded; a non-ABSENT finding with zero
-    grounded quotes was downgraded to ABSENT before this runs."""
+    boundary-validated and quote-grounded; ABSENT and ungrounded findings
+    were dropped before this runs, so every row here is a decisive edge.
+    claim carries record_sufficient (bool): the panel's judgment that the
+    record can establish or refute the declared value."""
     support_edges = []
     contradict_edges = []
     max_contra_sev = ""
@@ -490,7 +492,7 @@ def _derive_claim(claim: dict, findings: list, items_by_id: dict,
     contradict = _dedupe_by_account(contradict_edges)
     s_classes = {e["class"] for e in support}
     c_classes = {e["class"] for e in contradict}
-    sufficiency = claim["sufficiency"]
+    sufficient = bool(claim["record_sufficient"])
 
     # Fixed precedence. Every adverse outcome passes the corroboration
     # floor: an accusation resting only on the accuser's own uploads is
@@ -517,14 +519,14 @@ def _derive_claim(claim: dict, findings: list, items_by_id: dict,
             verdict = "CONFLICTING_EVIDENCE"
     elif contradict:
         if c_classes - {"FIRST_PARTY"}:
-            verdict = ("CLAIM_CONTRADICTED" if sufficiency == "SUFFICIENT"
+            verdict = ("CLAIM_CONTRADICTED" if sufficient
                        else "INCONCLUSIVE")
         else:
             verdict = ("PHYSICAL_INSPECTION_REQUIRED"
                        if max_contra_sev in ("MAJOR", "SAFETY_CRITICAL")
                        else "INSUFFICIENT_EVIDENCE")
     elif support:
-        if "INDEPENDENT" in s_classes and sufficiency == "SUFFICIENT":
+        if "INDEPENDENT" in s_classes and sufficient:
             verdict = "VERIFIED"
         else:
             verdict = "PARTIALLY_VERIFIED"
@@ -567,7 +569,7 @@ def _derive_claim(claim: dict, findings: list, items_by_id: dict,
         "contradicting": sorted(e["evidence_id"] for e in contradict),
         "support_classes": sorted(s_classes),
         "contradict_classes": sorted(c_classes),
-        "sufficiency": sufficiency,
+        "record_sufficient": sufficient,
     }
 
 
@@ -1432,9 +1434,14 @@ Respond ONLY with JSON:
                         f"enum for {cid}")
                 sufficiency[cid] = s
 
+            # The derivation reads only the SUFFICIENT/not cut — PARTIAL
+            # and INSUFFICIENT act identically — so only that binary is
+            # inside equivalence; the three-way shading stays display-only
+            # (model families split on shadings, not on the cut).
             claims_for_derive = [
                 {"claim_id": c["claim_id"], "type": c["type"],
-                 "sufficiency": sufficiency[c["claim_id"]]}
+                 "record_sufficient":
+                     sufficiency[c["claim_id"]] == "SUFFICIENT"}
                 for c in claims]
             report = _derive_report(
                 claims_for_derive, findings_by_claim, item_meta,
@@ -1480,9 +1487,14 @@ Respond ONLY with JSON:
                 return False
 
             # THE FIELDS THE REPORT READS, composed independently by each
-            # node, must match exactly.
+            # node, must match exactly. A split you cannot diagnose from
+            # chain stdout is a split you cannot fix, so every refusal
+            # names itself.
             if _canonical(mine["report"]) != _canonical(
                     theirs.get("report")):
+                print("[DISAGREE] derived report differs\n  mine:   "
+                      + _canonical(mine["report"])[:800] + "\n  leader: "
+                      + _canonical(theirs.get("report"))[:800])
                 return False
 
             # THE LEADER'S OWN ARITHMETIC, re-run deterministically: a
@@ -1496,29 +1508,40 @@ Respond ONLY with JSON:
                     not isinstance(t_suff, dict) or \
                     not isinstance(t_expl, dict) or \
                     not isinstance(t_diag, dict):
+                print("[DISAGREE] leader payload is structurally incomplete")
                 return False
             try:
                 re_claims = [
                     {"claim_id": c["claim_id"], "type": c["type"],
-                     "sufficiency": str(t_suff.get(c["claim_id"], ""))}
+                     "record_sufficient":
+                         str(t_suff.get(c["claim_id"], "")) == "SUFFICIENT"}
                     for c in claims]
                 re_report = _derive_report(
                     re_claims, t_findings, item_meta, seller_account,
                     dispute_stakes, conflicts, t_expl, t_diag)
-            except Exception:
+            except Exception as e:
+                print(f"[DISAGREE] leader findings do not re-derive: {e}")
                 return False
             if _canonical(re_report) != _canonical(theirs.get("report")):
+                print("[DISAGREE] leader's report does not follow from "
+                      "the leader's own findings")
                 return False
 
-            # THE FINDINGS the derivation read are inside equivalence:
-            # status, severity and cited-id sets per claim, explanation
-            # states, diagnostic state, sufficiency. Quotes must ground in
-            # the shared stored record; prose stays free.
+            # THE DECISION CUT is inside equivalence: which items bear on
+            # which claims and in which direction, the severe/not cut,
+            # the sufficient/not cut, explanation states, the diagnostic
+            # bools — exactly the inputs the derivation reads. Judgment
+            # SHADINGS (severity band wording, PARTIAL vs INSUFFICIENT)
+            # stay free, because model families split on shadings while
+            # agreeing on decisions. Quotes must ground in the shared
+            # stored record; prose stays free.
+            severe = ("MAJOR", "SAFETY_CRITICAL")
             for cid in claim_ids:
                 m_rows = {f["evidence_id"]: f
                           for f in mine["findings"].get(cid, [])}
                 t_rows_list = t_findings.get(cid)
                 if not isinstance(t_rows_list, list):
+                    print(f"[DISAGREE] {cid}: leader findings missing")
                     return False
                 t_rows = {}
                 for f in t_rows_list:
@@ -1526,29 +1549,56 @@ Respond ONLY with JSON:
                         return False
                     t_rows[str(f.get("evidence_id"))] = f
                 if set(m_rows.keys()) != set(t_rows.keys()):
+                    print(f"[DISAGREE] {cid}: decisive edges differ — "
+                          f"mine {sorted(m_rows)} vs leader "
+                          f"{sorted(t_rows)}")
                     return False
                 for eid, m_f in m_rows.items():
                     t_f = t_rows[eid]
                     if m_f["status"] != t_f.get("status"):
+                        print(f"[DISAGREE] {cid}/{eid}: direction — mine "
+                              f"{m_f['status']} vs leader "
+                              f"{t_f.get('status')}")
                         return False
-                    if m_f["status"] != "ABSENT" and \
-                            m_f["severity"] != t_f.get("severity"):
+                    m_sev = m_f["severity"] in severe
+                    t_sev = str(t_f.get("severity", "")) in severe
+                    if m_sev != t_sev:
+                        print(f"[DISAGREE] {cid}/{eid}: severe-cut — mine "
+                              f"{m_f['severity']} vs leader "
+                              f"{t_f.get('severity')}")
                         return False
                     t_quotes = t_f.get("quotes", [])
-                    if not isinstance(t_quotes, list):
-                        return False
-                    if t_f.get("status") != "ABSENT" and len(t_quotes) == 0:
+                    if not isinstance(t_quotes, list) or len(t_quotes) == 0:
+                        print(f"[DISAGREE] {cid}/{eid}: leader finding "
+                              "carries no quotes")
                         return False
                     for q in t_quotes:
                         if not isinstance(q, dict) or not _quote_grounded(
                                 q, eligible, texts):
+                            print(f"[DISAGREE] {cid}/{eid}: leader quote "
+                                  "does not ground in the stored record: "
+                                  f"{str(q)[:160]}")
                             return False
-                if mine["sufficiency"][cid] != t_suff.get(cid):
+                m_cut = mine["sufficiency"][cid] == "SUFFICIENT"
+                t_cut = str(t_suff.get(cid, "")) == "SUFFICIENT"
+                if m_cut != t_cut:
+                    print(f"[DISAGREE] {cid}: sufficient-cut — mine "
+                          f"{mine['sufficiency'][cid]} vs leader "
+                          f"{t_suff.get(cid)}")
                     return False
-            if _canonical(mine["explanations"]) != _canonical(t_expl):
-                return False
-            for key in ("supported", "severity", "safety_critical"):
-                if mine["diagnostic"].get(key) != t_diag.get(key):
+            for conflict_id in mine["explanations"]:
+                if mine["explanations"][conflict_id] != \
+                        t_expl.get(conflict_id):
+                    print(f"[DISAGREE] {conflict_id}: explanation — mine "
+                          f"{mine['explanations'][conflict_id]} vs leader "
+                          f"{t_expl.get(conflict_id)}")
+                    return False
+            for key in ("supported", "safety_critical"):
+                if bool(mine["diagnostic"].get(key)) != \
+                        bool(t_diag.get(key)):
+                    print(f"[DISAGREE] diagnostic.{key} — mine "
+                          f"{mine['diagnostic'].get(key)} vs leader "
+                          f"{t_diag.get(key)}")
                     return False
             return True
 
@@ -1745,19 +1795,25 @@ def _normalize_panel_output(raw: dict, claim_ids: list, eligible: list,
                 grounded = _ground_quote(qtext, cited, eligible, texts)
                 if grounded is not None and grounded not in quotes:
                     quotes.append(grounded)
-        if status != "ABSENT" and len(quotes) == 0:
-            print(f"[DOWNGRADE] {cid}/{eid} {status}: no quote grounded in "
-                  f"the stored record; finding downgraded to ABSENT; raw "
-                  f"quotes: {raw_quotes!r}")
-            status, severity, quotes = "ABSENT", "MINOR", []
-        if eid not in eligible and status != "ABSENT":
-            print(f"[DOWNGRADE] {cid}/{eid} {status}: cited item is not in "
-                  "the judged record; downgraded to ABSENT")
-            status, severity, quotes = "ABSENT", "MINOR", []
         seen.add((cid, eid))
+        # ABSENT rows are dropped, not stored: the derivation never reads
+        # them, and comparing their presence across validators would put
+        # noise inside equivalence (families differ on which non-bearing
+        # items they bother to list).
+        if status == "ABSENT":
+            continue
+        if len(quotes) == 0:
+            print(f"[DOWNGRADE] {cid}/{eid} {status}: no quote grounded in "
+                  f"the stored record; finding dropped; raw quotes: "
+                  f"{raw_quotes!r}")
+            continue
+        if eid not in eligible:
+            print(f"[DOWNGRADE] {cid}/{eid} {status}: cited item is not in "
+                  "the judged record; finding dropped")
+            continue
         findings_by_claim[cid].append({
             "claim_id": cid, "evidence_id": eid, "status": status,
-            "severity": severity if status != "ABSENT" else "MINOR",
+            "severity": severity,
             "quotes": quotes,
         })
 

@@ -1,19 +1,21 @@
 /**
- * Self-contained auth: argon2id password hashes, signed HttpOnly session
- * cookies backed by DB Session rows. No vendor, no secret in the client.
- * Account identity is app-attested — the trust docs say so plainly — and
- * the contract's same-account rules are what make a second inbox
- * worthless, not this file.
+ * Wallet-based auth: an account IS an address. Sign-in is an EIP-191
+ * personal_sign over a server-issued nonce; sessions are signed HttpOnly
+ * cookies backed by DB rows. No vendor, no password, no secret in the
+ * client. Identity stays self-attested (anyone can mint wallets) — the
+ * contract's same-account rules and the VERIFIED-requires-INDEPENDENT
+ * floor are what make a second wallet worthless, and the docs say so.
  */
 
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { hash as argonHash, verify as argonVerify } from "@node-rs/argon2";
+import { verifyMessage } from "viem";
 import { prisma } from "@autocourt/db";
 
 import { unauthorized } from "./errors.js";
 
 const SESSION_COOKIE = "ac_session";
 const SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+const NONCE_TTL_MS = 5 * 60 * 1000;
 
 function secret(): string {
   const s = process.env.SESSION_SECRET;
@@ -23,42 +25,76 @@ function secret(): string {
   return s;
 }
 
-export async function hashPassword(password: string): Promise<string> {
-  return argonHash(password, {
-    memoryCost: 19_456,
-    timeCost: 2,
-    parallelism: 1,
-  });
+function hmac(data: string, key = secret()): string {
+  return createHmac("sha256", key).update(data).digest("base64url");
 }
 
-export async function verifyPassword(
-  stored: string,
-  password: string,
+function safeEqual(a: string, b: string): boolean {
+  const ba = Buffer.from(a);
+  const bb = Buffer.from(b);
+  return ba.length === bb.length && timingSafeEqual(ba, bb);
+}
+
+/* ── nonce (stateless, HMAC-sealed, short-lived) ─────────────────────── */
+
+export function issueNonce(address: string): string {
+  const body = `${address.toLowerCase()}.${Date.now()}.${randomBytes(8).toString("base64url")}`;
+  return `${Buffer.from(body).toString("base64url")}.${hmac(body)}`;
+}
+
+export function nonceAddress(nonce: string): string | null {
+  const dot = nonce.lastIndexOf(".");
+  if (dot <= 0) return null;
+  const body = Buffer.from(nonce.slice(0, dot), "base64url").toString();
+  if (!safeEqual(nonce.slice(dot + 1), hmac(body))) return null;
+  const [address, ts] = body.split(".");
+  if (!address || !ts) return null;
+  if (Date.now() - Number(ts) > NONCE_TTL_MS) return null;
+  return address;
+}
+
+/** The exact text the wallet signs — shown verbatim in the wallet UI. */
+export function signInMessage(address: string, nonce: string): string {
+  return (
+    "AutoCourt sign-in\n\n" +
+    `wallet: ${address.toLowerCase()}\n` +
+    `nonce: ${nonce}\n\n` +
+    "Signing proves control of this wallet. No transaction is sent and " +
+    "no fee is paid."
+  );
+}
+
+export async function verifyWalletSignature(
+  address: string,
+  nonce: string,
+  signature: string,
 ): Promise<boolean> {
+  const bound = nonceAddress(nonce);
+  if (!bound || bound !== address.toLowerCase()) return false;
   try {
-    return await argonVerify(stored, password);
+    return await verifyMessage({
+      address: address as `0x${string}`,
+      message: signInMessage(address, nonce),
+      signature: signature as `0x${string}`,
+    });
   } catch {
     return false;
   }
 }
 
+/* ── sessions ────────────────────────────────────────────────────────── */
+
 export function signToken(sessionId: string, key = secret()): string {
-  const mac = createHmac("sha256", key).update(sessionId).digest("base64url");
-  return `${sessionId}.${mac}`;
+  return `${sessionId}.${hmac(sessionId, key)}`;
 }
 
 export function verifyToken(token: string, key = secret()): string | null {
   const dot = token.lastIndexOf(".");
   if (dot <= 0) return null;
   const sessionId = token.slice(0, dot);
-  const mac = token.slice(dot + 1);
-  const expected = createHmac("sha256", key)
-    .update(sessionId)
-    .digest("base64url");
-  const a = Buffer.from(mac);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
-  return sessionId;
+  return safeEqual(token.slice(dot + 1), hmac(sessionId, key))
+    ? sessionId
+    : null;
 }
 
 export async function createSession(userId: string): Promise<string> {
@@ -86,7 +122,7 @@ export function clearedSessionCookie(): string {
 
 export interface AuthedUser {
   id: string;
-  email: string;
+  walletAddress: string;
   displayName: string;
   sessionId: string;
 }
@@ -104,7 +140,7 @@ export async function userFromRequest(req: Request): Promise<AuthedUser | null> 
   if (!session || session.expiresAt < new Date()) return null;
   return {
     id: session.user.id,
-    email: session.user.email,
+    walletAddress: session.user.walletAddress,
     displayName: session.user.displayName,
     sessionId,
   };

@@ -55,7 +55,7 @@ export async function POST(
       evidenceId: i.evidenceId,
       declaredClass: i.declaredClass,
       declaredLabel: i.declaredLabel,
-      uploaderAccount: i.uploaderId,
+      uploaderAccount: i.uploader.walletAddress,
       uploaderRole: i.uploaderRole as "SELLER" | "BUYER",
       fileSha256: i.fileSha256,
       normalizedText: i.extraction?.normalizedText ?? "",
@@ -84,7 +84,7 @@ export async function POST(
       make: vehicle.make,
       model: vehicle.model,
       year: vehicle.year,
-      seller_account: vehicle.sellerId,
+      seller_account: vehicle.seller.walletAddress,
     });
     const claimsJson = JSON.stringify(
       vehicle.claims.map((c) => ({
@@ -108,9 +108,10 @@ export async function POST(
     );
     const byDisputer = new Map<string, { claimIds: string[]; note: string }>();
     for (const { claimId, d } of disputes) {
-      const entry = byDisputer.get(d.disputerId) ?? { claimIds: [], note: d.note };
+      const wallet = d.disputer.walletAddress;
+      const entry = byDisputer.get(wallet) ?? { claimIds: [], note: d.note };
       entry.claimIds.push(claimId);
-      byDisputer.set(d.disputerId, entry);
+      byDisputer.set(wallet, entry);
     }
     for (const [account, entry] of byDisputer) {
       await enqueueJob(id, "RECORD_DISPUTE", {

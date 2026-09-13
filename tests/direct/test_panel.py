@@ -163,6 +163,86 @@ def test_injected_instructions_are_fenced_and_defused(module, c):
     assert "instructions" in prompt.lower()
 
 
+def test_severity_shading_differences_do_not_split_the_round(module, c):
+    """Model families disagree on MINOR vs MODERATE while agreeing on the
+    decision; the severe/not cut is what equivalence compares."""
+    aid = build_assessment(module, c)
+    leader_ans = panel_answer()  # E-SVC MODERATE, E-HIST MINOR/MODERATE
+    validator_ans = panel_answer(findings=[
+        finding("CL-01", "E-SVC", "SUPPORTED", "MINOR",
+                ["Odometer reading 87,432 miles at service"]),
+        finding("CL-01", "E-HIST", "SUPPORTED", "MODERATE",
+                ["Odometer reported 86,900 miles on 2026-01-15"]),
+        finding("CL-02", "E-HIST", "SUPPORTED", "MINOR",
+                ["No accident records found for this vehicle"]),
+    ])
+    panel_says(leader_ans, validator_ans)
+    assert c.adjudicate(aid).startswith("run 1:")
+
+
+def test_sufficiency_shading_differences_do_not_split_the_round(module, c):
+    """PARTIAL vs INSUFFICIENT act identically in the derivation, so they
+    must not burn a round; SUFFICIENT vs not is the decisive cut."""
+    aid = build_assessment(module, c)
+    leader_ans = panel_answer(
+        sufficiency={"CL-01": "PARTIAL", "CL-02": "SUFFICIENT"})
+    validator_ans = panel_answer(
+        sufficiency={"CL-01": "INSUFFICIENT", "CL-02": "SUFFICIENT"})
+    panel_says(leader_ans, validator_ans)
+    assert c.adjudicate(aid).startswith("run 1:")
+
+
+def test_sufficient_cut_difference_refuses_the_round(module, c):
+    aid = build_assessment(module, c)
+    leader_ans = panel_answer(
+        sufficiency={"CL-01": "SUFFICIENT", "CL-02": "SUFFICIENT"})
+    validator_ans = panel_answer(
+        sufficiency={"CL-01": "PARTIAL", "CL-02": "SUFFICIENT"})
+    panel_says(leader_ans, validator_ans)
+    with pytest.raises(err(module), match="did not agree"):
+        c.adjudicate(aid)
+
+
+def test_absent_listing_differences_do_not_split_the_round(module, c):
+    """One family lists ABSENT rows for items that do not bear on a
+    claim; another lists none. Noise, not decision — dropped at the
+    boundary on both sides."""
+    aid = build_assessment(module, c)
+    leader_ans = panel_answer()
+    validator_ans = panel_answer(findings=[
+        finding("CL-01", "E-SVC", "SUPPORTED", "MODERATE",
+                ["Odometer reading 87,432 miles at service"]),
+        finding("CL-01", "E-HIST", "SUPPORTED", "MINOR",
+                ["Odometer reported 86,900 miles on 2026-01-15"]),
+        finding("CL-02", "E-HIST", "SUPPORTED", "MODERATE",
+                ["No accident records found for this vehicle"]),
+        finding("CL-02", "E-SVC", "ABSENT", "MINOR"),  # extra ABSENT row
+    ])
+    panel_says(leader_ans, validator_ans)
+    assert c.adjudicate(aid).startswith("run 1:")
+
+
+def test_severe_cut_difference_refuses_the_round(module, c):
+    """MODERATE vs MAJOR changes what the floors derive — that IS a
+    decision, and the round must not paper over it."""
+    aid = build_assessment(module, c)
+    leader_ans = panel_answer(findings=[
+        finding("CL-01", "E-SVC", "SUPPORTED", "MODERATE",
+                ["Odometer reading 87,432 miles at service"]),
+        finding("CL-02", "E-HIST", "CONTRADICTED", "MAJOR",
+                ["No accident records found for this vehicle"]),
+    ])
+    validator_ans = panel_answer(findings=[
+        finding("CL-01", "E-SVC", "SUPPORTED", "MODERATE",
+                ["Odometer reading 87,432 miles at service"]),
+        finding("CL-02", "E-HIST", "CONTRADICTED", "MODERATE",
+                ["No accident records found for this vehicle"]),
+    ])
+    panel_says(leader_ans, validator_ans)
+    with pytest.raises(err(module), match="did not agree"):
+        c.adjudicate(aid)
+
+
 def test_validator_with_a_different_reading_refuses_the_round(module, c):
     """The leader and this validator disagree on a finding status — the
     round fails, nothing is written."""
@@ -247,9 +327,9 @@ def test_forged_internally_consistent_dossier_is_refused(module, c):
               "uploader_role", "declared_class", "file_sha256",
               "text_sha256", "judged_version")} for it in stored]
     claims_for = [{"claim_id": "CL-01", "type": "MILEAGE",
-                   "sufficiency": "SUFFICIENT"},
+                   "record_sufficient": True},
                   {"claim_id": "CL-02", "type": "ACCIDENT_HISTORY",
-                   "sufficiency": "SUFFICIENT"}]
+                   "record_sufficient": True}]
     report = module._derive_report(
         claims_for, forged_findings, meta, "acct-seller", [], [], {},
         {"supported": False, "severity": "MINOR", "safety_critical": False})

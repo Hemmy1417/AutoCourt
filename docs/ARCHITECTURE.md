@@ -82,14 +82,18 @@ assumed anywhere in this design (§3.2, §4.6).
   the on-chain manifest per item (§3.4), and `scripts/verify-extraction`
   recomputes any item's normalized-text hash from its original so a third
   party can check the pipeline after the fact.
-- **Auth**: self-contained email+password (argon2id) with signed HttpOnly
-  session cookies. No auth vendor, no secrets in the client. Roles are
-  contextual: a user is a seller on vehicles they created and a buyer on
-  assessments shared with them. **Account identity is app-attested, not
-  proven**: nothing stops one person operating two accounts, and the
-  corroboration ladder (§4.4) is designed so that this buys them nothing that
-  matters — same-account items never corroborate, and opposing-role uploads
-  can never lift a seller-favoring verdict.
+- **Auth**: wallet-based, and only wallet-based (user decision, 13 Sep).
+  The account IS an address: sign-in is an EIP-191 `personal_sign` over a
+  server-issued short-lived nonce (no transaction, no fee), sessions are
+  signed HttpOnly cookies backed by DB rows. The wallet address is also
+  the on-chain account string — `uploader_account`, dispute stakes and
+  appellants are all addresses, so attribution on the record reads
+  naturally against the chain. Roles stay contextual: a user is a seller
+  on vehicles they created and a buyer on assessments shared with them.
+  **Identity is still self-attested** — anyone can mint wallets — and the
+  corroboration ladder (§4.4) is designed so that this buys them nothing
+  that matters: same-account items never corroborate, and opposing-role
+  uploads can never lift a seller-favoring verdict.
 - **Background work**: assessment jobs are DB rows with a **lease**
   (`locked_until`, bounded retries). `packages/worker-core` exposes
   `runPendingJobs()`; `apps/worker` loops it in the supported long-lived
@@ -278,14 +282,20 @@ records), and one free-prose `unresolved_questions` field per claim.
 Deterministic code validates every field structurally at the boundary (enum
 membership, severity range, cited ids exist in the manifest — S16).
 
-**Equivalence covers**: per-claim finding status, severity band, cited
-evidence-id sets, the explanation-finding states, and the
-inspection-required bit — every field the derived report reads. Prose stays
-free. The disagreement diagnostic prints the dissenter's own quotes, and a
-**disposable-deploy diagnostic pass** (validator stdout `[DISAGREE]` /
-`[DOWNGRADE]` on a throwaway deploy) runs before the canonical deployment,
-because a split you cannot diagnose from chain stdout is a split you cannot
-fix.
+**Equivalence covers the decision cut** — exactly the inputs the
+derivation reads, and nothing shaded: which items bear on which claims
+and in which direction, the severe/not-severe cut of each severity, the
+sufficient/not cut of the record judgment, explanation states, and the
+diagnostic booleans. Judgment SHADINGS (MINOR vs MODERATE, PARTIAL vs
+INSUFFICIENT) and the listing of non-bearing ABSENT rows stay free,
+because model families split on shadings while agreeing on decisions —
+the live diagnostic pass proved both halves (PROBE-REPORT.md): the
+shaded-field equivalence burned a round MAJORITY_DISAGREE; the
+decision-cut equivalence finalized MAJORITY_AGREE. Every validator
+refusal prints a `[DISAGREE]` line naming the field and both values, and
+the **disposable-deploy diagnostic pass** runs before any canonical
+deployment, because a split you cannot diagnose from chain stdout is a
+split you cannot fix.
 
 ### 4.4 Corroboration is derived in the contract, per edge
 

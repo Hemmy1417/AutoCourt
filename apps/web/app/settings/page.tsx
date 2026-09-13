@@ -11,7 +11,7 @@ import {
 } from "../components/bits";
 
 interface Settings {
-  profile: { id: string; email: string; displayName: string };
+  profile: { id: string; walletAddress: string; displayName: string };
   currentSessionId: string;
   sessions: { id: string; createdAt: string; expiresAt: string }[];
   evidence: {
@@ -62,19 +62,17 @@ export default function SettingsPage() {
         <h3 style={{ marginBottom: 10 }}>Profile</h3>
         <div className="kv">
           <dt>Name</dt>
-          <dd>{data.profile.displayName}</dd>
-          <dt>Email</dt>
-          <dd>{data.profile.email}</dd>
-          <dt>Account id</dt>
+          <dd>{data.profile.displayName || "—"}</dd>
+          <dt>Wallet</dt>
           <dd className="mono" style={{ fontSize: 12 }}>
-            {data.profile.id}
+            {data.profile.walletAddress}
           </dd>
         </div>
         <p className="muted" style={{ fontSize: 12.5, marginTop: 10 }}>
-          Your account id is what attributes evidence and disputes on the
-          chain record. Identity beyond it is not verified — and the
-          verdict floors are designed so that a second account buys
-          nothing.
+          Your wallet address is what attributes evidence and disputes on
+          the chain record. Identity beyond controlling the wallet is not
+          verified — and the verdict floors are designed so that a second
+          wallet buys nothing.
         </p>
       </div>
 

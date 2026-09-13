@@ -53,11 +53,12 @@ export async function POST(
       claimIds: claims.map((c) => c.claimId),
       afterRuns: runsCount,
     });
-    // The stake must be RECORDED where the ladder runs: on-chain.
+    // The stake must be RECORDED where the ladder runs: on-chain, under
+    // the wallet address that IS the account.
     if (assessment.onChainId) {
       await enqueueJob(id, "RECORD_DISPUTE", {
         onChainId: assessment.onChainId,
-        account: user.id,
+        account: user.walletAddress,
         claimIdsJson: JSON.stringify(claims.map((c) => c.claimId)),
         note,
       });

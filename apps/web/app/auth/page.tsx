@@ -1,121 +1,121 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 
 import { api } from "../components/api";
 import { ErrorNotice, Spinner } from "../components/bits";
+import { Logo } from "../components/Logo";
 
-// Screen 2 — sign-in / sign-up.
+declare global {
+  interface Window {
+    ethereum?: {
+      request: (args: {
+        method: string;
+        params?: unknown[];
+      }) => Promise<unknown>;
+    };
+  }
+}
+
+// Screen 2 — wallet sign-in. The account IS the address: an EIP-191
+// signature over a server nonce proves control; no transaction is sent.
 function AuthInner() {
   const router = useRouter();
   const params = useSearchParams();
   const next = params.get("next") ?? "/dashboard";
-  const [mode, setMode] = useState<"in" | "up">("in");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [hasWallet, setHasWallet] = useState<boolean | null>(null);
   const [displayName, setDisplayName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [step, setStep] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
 
-  async function go() {
+  useEffect(() => {
+    setHasWallet(typeof window !== "undefined" && Boolean(window.ethereum));
+  }, []);
+
+  async function connect() {
+    if (!window.ethereum) return;
     setBusy(true);
     setError(null);
     try {
-      if (mode === "up") {
-        await api("/api/auth/register", {
-          method: "POST",
-          body: JSON.stringify({ email, password, displayName }),
-        });
-      } else {
-        await api("/api/auth/login", {
-          method: "POST",
-          body: JSON.stringify({ email, password }),
-        });
-      }
+      setStep("asking your wallet for an account…");
+      const accounts = (await window.ethereum.request({
+        method: "eth_requestAccounts",
+      })) as string[];
+      const address = accounts?.[0];
+      if (!address) throw new Error("no account returned by the wallet");
+      setStep("issuing a sign-in nonce…");
+      const { nonce, message } = await api<{ nonce: string; message: string }>(
+        "/api/auth/nonce",
+        { method: "POST", body: JSON.stringify({ address }) },
+      );
+      setStep("waiting for your signature…");
+      const signature = (await window.ethereum.request({
+        method: "personal_sign",
+        params: [message, address],
+      })) as string;
+      setStep("verifying…");
+      await api("/api/auth/verify", {
+        method: "POST",
+        body: JSON.stringify({ address, nonce, signature, displayName }),
+      });
       router.push(next);
     } catch (e) {
       setError(e);
-    } finally {
       setBusy(false);
+      setStep(null);
     }
   }
 
   return (
     <section className="section" style={{ maxWidth: 440, margin: "0 auto" }}>
-      <div className="card" style={{ padding: 30 }}>
-        <div
-          className="row"
-          style={{
-            background: "var(--well)",
-            borderRadius: "var(--r-chip)",
-            padding: 4,
-            marginBottom: 22,
-          }}
-        >
-          {(["in", "up"] as const).map((m) => (
-            <button
-              key={m}
-              className="btn"
-              style={{
-                flex: 1,
-                background: mode === m ? "var(--card)" : "transparent",
-                boxShadow: mode === m ? "var(--shadow-card)" : "none",
-                color: mode === m ? "var(--ink)" : "var(--muted)",
-                padding: "8px 0",
-              }}
-              onClick={() => setMode(m)}
-            >
-              {m === "in" ? "Sign in" : "Create account"}
-            </button>
-          ))}
+      <div className="card" style={{ padding: 30, textAlign: "center" }}>
+        <div className="row" style={{ justifyContent: "center" }}>
+          <Logo size={44} />
         </div>
-        <h2 style={{ marginBottom: 18 }}>
-          {mode === "in" ? "Welcome back" : "Join AutoCourt"}
-        </h2>
-        {mode === "up" && (
-          <div className="field">
-            <label>Display name</label>
-            <input
-              type="text"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="Alex Nwosu"
-            />
-          </div>
-        )}
-        <div className="field">
-          <label>Email</label>
+        <h2 style={{ marginTop: 14 }}>Connect your wallet</h2>
+        <p className="muted small" style={{ marginTop: 10 }}>
+          Your wallet address is your account — it attributes every upload
+          and dispute on the record. Signing in is a free signature; no
+          transaction is sent and no fee is paid.
+        </p>
+        <div className="field" style={{ textAlign: "left", marginTop: 18 }}>
+          <label>Display name (optional)</label>
           <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
-          />
-        </div>
-        <div className="field">
-          <label>Password</label>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder={mode === "up" ? "at least 10 characters" : ""}
-            onKeyDown={(e) => e.key === "Enter" && go()}
+            type="text"
+            maxLength={60}
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            placeholder="Alex N."
           />
         </div>
         <ErrorNotice error={error} />
-        <button
-          className="btn btn-primary"
-          style={{ width: "100%", marginTop: 12 }}
-          disabled={busy || !email || !password}
-          onClick={go}
-        >
-          {busy ? <Spinner /> : mode === "in" ? "Sign in" : "Create account"}
-        </button>
-        <p className="muted small" style={{ marginTop: 14 }}>
-          Accounts attribute evidence and disputes on the record. Identity
-          beyond your account is not verified — the verdict floors are what
-          make a second inbox worthless.
+        {hasWallet === false ? (
+          <div className="notice notice-warn" style={{ marginTop: 12 }}>
+            No wallet extension detected. Install MetaMask (or any
+            EIP-1193 wallet), then reload this page.
+          </div>
+        ) : (
+          <button
+            className="btn btn-primary"
+            style={{ width: "100%", marginTop: 12 }}
+            disabled={busy || hasWallet === null}
+            onClick={connect}
+          >
+            {busy ? <Spinner /> : "Connect wallet & sign in"}
+          </button>
+        )}
+        {step ? (
+          <p className="muted" style={{ fontSize: 12.5, marginTop: 10 }}>
+            {step}
+          </p>
+        ) : null}
+        <p className="muted" style={{ fontSize: 12, marginTop: 14 }}>
+          Wallets are self-created, and AutoCourt says so plainly: what
+          makes a second wallet worthless is the contract — items from one
+          account never corroborate each other, and VERIFIED needs an
+          independent anchor no wallet can mint.
         </p>
       </div>
     </section>

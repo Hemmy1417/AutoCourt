@@ -37,8 +37,27 @@ async function loadAssessment(id: string) {
   return prisma.assessment.findUnique({
     where: { id },
     include: {
-      vehicle: { include: { claims: { include: { disputes: true } }, seller: true } },
-      evidenceItems: { include: { extraction: true, observations: true } },
+      vehicle: {
+        include: {
+          seller: true,
+          claims: {
+            include: {
+              disputes: {
+                include: {
+                  disputer: { select: { walletAddress: true } },
+                },
+              },
+            },
+          },
+        },
+      },
+      evidenceItems: {
+        include: {
+          extraction: true,
+          observations: true,
+          uploader: { select: { walletAddress: true } },
+        },
+      },
       runs: { orderBy: { createdAt: "desc" } },
     },
   });

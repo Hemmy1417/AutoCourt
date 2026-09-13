@@ -51,16 +51,16 @@ export default function ShareRedeem() {
         <div className="card" style={{ textAlign: "center", padding: 34 }}>
           <h2>A seller shared a verdict with you</h2>
           <p className="muted" style={{ marginTop: 10 }}>
-            Sign in (or create an account) to open it. Your account is what
-            lets you add counter-evidence and dispute claims — on the
-            record, in your own name.
+            Connect your wallet to open it. Your address is what lets you
+            add counter-evidence and dispute claims — on the record, in
+            your own name.
           </p>
           <Link
             className="btn btn-primary"
             style={{ marginTop: 18 }}
             href={`/auth?next=/share/${token}`}
           >
-            Sign in to continue
+            Connect wallet to continue
           </Link>
         </div>
       </section>

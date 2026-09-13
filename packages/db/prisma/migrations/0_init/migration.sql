@@ -4,9 +4,8 @@ CREATE SCHEMA IF NOT EXISTS "public";
 -- CreateTable
 CREATE TABLE "User" (
     "id" TEXT NOT NULL,
-    "email" TEXT NOT NULL,
-    "passwordHash" TEXT NOT NULL,
-    "displayName" TEXT NOT NULL,
+    "walletAddress" TEXT NOT NULL,
+    "displayName" TEXT NOT NULL DEFAULT '',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "User_pkey" PRIMARY KEY ("id")
@@ -235,7 +234,7 @@ CREATE TABLE "Job" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
+CREATE UNIQUE INDEX "User_walletAddress_key" ON "User"("walletAddress");
 
 -- CreateIndex
 CREATE INDEX "Session_userId_idx" ON "Session"("userId");
