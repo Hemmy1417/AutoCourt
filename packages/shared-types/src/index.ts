@@ -1,0 +1,17 @@
+/** Mirrored by the contract; the app never invents a verdict value. */
+export const CLAIM_VERDICTS = [
+  "VERIFIED",
+  "PARTIALLY_VERIFIED",
+  "CLAIM_CONTRADICTED",
+  "MATERIAL_CONCERN",
+  "MILEAGE_CONFLICT",
+  "POSSIBLE_ODOMETER_ROLLBACK",
+  "DIAGNOSTIC_CONCERN_SUPPORTED",
+  "CONFLICTING_EVIDENCE",
+  "INSUFFICIENT_EVIDENCE",
+  "PHYSICAL_INSPECTION_REQUIRED",
+  "SOURCE_UNAVAILABLE",
+  "INCONCLUSIVE",
+  "REJECTED",
+] as const;
+export type ClaimVerdict = (typeof CLAIM_VERDICTS)[number];
