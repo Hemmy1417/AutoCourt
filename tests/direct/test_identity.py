@@ -119,7 +119,7 @@ def _status_of(module, identity):
     claims_for = [{"claim_id": "CL-01", "type": "MILEAGE",
                    "record_sufficient": True}]
     return module._derive_report(
-        claims_for, findings, items, "acct-seller", [], [], {},
+        claims_for, findings, items, SELLER, [], [], {},
         {"supported": False}, identity)
 
 
@@ -194,7 +194,7 @@ def test_identity_status_is_inside_equivalence(module, c):
     # The record says CONFIRMED; the leader claims a mismatch it cannot have.
     forge_leader({
         "report": module._derive_report(
-            claims_for, findings, meta, "acct-seller", [], [], {},
+            claims_for, findings, meta, SELLER, [], [], {},
             diagnostic, "MISMATCH"),
         "findings": findings,
         "sufficiency": {"CL-01": "SUFFICIENT", "CL-02": "SUFFICIENT"},
@@ -247,4 +247,11 @@ def test_config_publishes_the_registry_and_signature_bounds(module, c):
     assert cfg["identity_registry_host"] == "vpic.nhtsa.dot.gov"
     assert "MISMATCH" in cfg["identity_statuses"]
     assert cfg["max_signature_chars"] == 200
-    assert cfg["ruleset"] == "autocourt-rules-2"
+    assert cfg["ruleset"] == "autocourt-rules-4"
+    assert cfg["writes_bound_to_signer"] is True
+    assert (cfg["max_seller_items_at_submission"]
+            + cfg["max_other_items_at_submission"]
+            == cfg["max_items_at_submission"])
+    assert (cfg["max_seller_items_per_appeal"]
+            + cfg["max_other_items_per_appeal"]
+            == cfg["max_new_items_per_appeal"])

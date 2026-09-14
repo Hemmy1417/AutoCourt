@@ -193,6 +193,13 @@ export const evidenceClassLabel = (c: string) =>
 const ROLE: Record<string, string> = { SELLER: "Seller", BUYER: "Buyer" };
 export const roleLabel = (r: string) => lookup(ROLE, r);
 
+/** The hosts a deployment can allow, by the name a person knows them by. */
+const SOURCE_HOST: Record<string, string> = {
+  "api.nhtsa.gov": "NHTSA, the US vehicle safety regulator",
+  "raw.githubusercontent.com": "GitHub, a file pinned to one commit",
+};
+export const sourceHostName = (host: string) => SOURCE_HOST[host.toLowerCase()] ?? host;
+
 /* ── runs ─────────────────────────────────────────────────────────────── */
 
 export function runLabel(kind: string): string {

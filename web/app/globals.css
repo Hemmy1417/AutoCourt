@@ -321,9 +321,13 @@ code,
 
 .dossier {
   display: grid;
-  grid-template-columns: 340px 1fr;
+  grid-template-columns: 340px minmax(0, 1fr);
   gap: 22px;
   align-items: start;
+}
+
+.dossier > * {
+  min-width: 0;
 }
 
 .dossier-side {
@@ -335,7 +339,7 @@ code,
 
 @media (max-width: 880px) {
   .dossier {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .dossier-side {
     position: static;
@@ -844,8 +848,11 @@ textarea::placeholder {
   background: rgba(255, 255, 255, 0.8);
   border-radius: 8px;
   padding: 8px 11px;
+  overflow-wrap: anywhere;
 }
 
+/* A source can be one long line with no spaces (NHTSA serves compact JSON),
+   so recorded text wraps anywhere rather than widening the page. */
 .evidence-text {
   font-family: var(--font-mono);
   font-size: 12.5px;
@@ -855,6 +862,7 @@ textarea::placeholder {
   padding: 14px;
   margin: 12px 0 0;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   max-height: 260px;
   overflow: auto;
 }

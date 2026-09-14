@@ -58,7 +58,7 @@ export default function Landing() {
             },
             {
               t: "Check us, don't trust us",
-              d: "There is no server holding your record: this page reads the contract directly, and every run, fingerprint and refusal is on the public explorer.",
+              d: "There is no server holding your record: this page reads the contract directly, and every run, fingerprint and refusal is on the public explorer. Every write is recorded in the name of the wallet that signs it, and no one else.",
             },
           ].map((f) => (
             <div key={f.t} className="card">
@@ -90,7 +90,9 @@ export default function Landing() {
             </li>
             <li>
               <b>Build the record.</b> Documents are read, redacted and fingerprinted in your browser;
-              buyers add counter-evidence and dispute specific claims in their own name.
+              buyers add counter-evidence and dispute specific claims in their own name. Either side
+              can ask every validator to fetch an independent source, such as NHTSA&apos;s recall list
+              for the vehicle.
             </li>
             <li>
               <b>Publish, then seal.</b> Each item is public the moment you sign it, so redaction
@@ -101,8 +103,8 @@ export default function Landing() {
               finding; code derives the verdicts, confidence and next actions.
             </li>
             <li>
-              <b>Share, or appeal.</b> The record is public, so a link to it is the report; new
-              evidence opens a new, tagged run.
+              <b>Share, or appeal.</b> The record is public, so a link to it is the report; a party to
+              the record can bring new evidence and open a new, tagged run.
             </li>
           </ol>
           <p className="fine" style={{ marginTop: 18 }}>

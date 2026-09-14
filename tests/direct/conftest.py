@@ -41,8 +41,15 @@ SELLER_ADDR = "0x1111111111111111111111111111111111111111"
 BUYER_ADDR = "0x2222222222222222222222222222222222222222"
 STRANGER_ADDR = "0x5555555555555555555555555555555555555555"
 
-SELLER = "acct-seller"
-BUYER = "acct-buyer"
+# Every account the contract records is the wallet that signed the write, so
+# the fixtures' accounts ARE the wallets that send.
+SELLER = SELLER_ADDR
+BUYER = BUYER_ADDR
+
+
+def account(n):
+    """A distinct wallet address for the n-th extra party."""
+    return "0x" + format(0xA000 + n, "040x")
 
 # The published ISO 3779 example VIN whose check digit is X.
 VIN = "1M8GDM9AXKP042788"
@@ -470,17 +477,23 @@ def anchor_item(eid="E-REG", url=REG_URL, expected=None):
     })
 
 
+def submit_as_uploader(module, c, aid, item_json):
+    """Send an uploaded item from the wallet it names, as a real client does."""
+    as_(module, json.loads(item_json).get("uploader_account") or SELLER_ADDR)
+    return c.submit_evidence_text(aid, item_json)
+
+
 def build_assessment(module, c, items=None, disputes=None, seal=True):
     """create → items → disputes → seal. Returns the assessment id."""
     as_(module, SELLER_ADDR)
     aid = c.create_assessment(json.dumps(vehicle()), json.dumps(claims()))
     for it in (items if items is not None else [svc_item(), hist_item()]):
-        c.submit_evidence_text(aid, it)
+        submit_as_uploader(module, c, aid, it)
     for d in (disputes or []):
-        as_(module, BUYER_ADDR)
+        as_(module, d["account"])
         c.record_dispute(aid, d["account"], json.dumps(d["claim_ids"]),
                          d.get("note", ""))
-        as_(module, SELLER_ADDR)
+    as_(module, SELLER_ADDR)
     if seal:
         stored = [json.loads(c.items[f"{aid}|{eid}"])
                   for eid in json.loads(c.item_index[aid])]

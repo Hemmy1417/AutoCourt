@@ -6,10 +6,12 @@ import json
 
 import pytest
 
-from conftest import (BUYER, SELLER_ADDR, anchor_item, as_,
+from conftest import (BUYER, SELLER, SELLER_ADDR, account, anchor_item, as_,
                       build_assessment, downgrades, err, finding,
                       forge_leader, hist_item, item, panel_answer,
                       panel_says, prompts, sha, svc_item)
+
+BUYER2 = account(2)
 
 
 def test_happy_path_derives_the_report_in_code(module, c):
@@ -25,7 +27,7 @@ def test_happy_path_derives_the_report_in_code(module, c):
     assert by_id["CL-01"]["verdict"] == "PARTIALLY_VERIFIED"
     assert by_id["CL-02"]["verdict"] == "PARTIALLY_VERIFIED"
     assert by_id["CL-01"]["next_action"] == "OBTAIN_INDEPENDENT_RECORD"
-    assert v["ruleset"] == "autocourt-rules-2"
+    assert v["ruleset"] == "autocourt-rules-4"
 
 
 def test_independent_anchor_lifts_verified_and_dispute_prices_adverse(
@@ -363,7 +365,7 @@ def test_forged_internally_consistent_dossier_is_refused(module, c):
                   {"claim_id": "CL-02", "type": "ACCIDENT_HISTORY",
                    "record_sufficient": True}]
     report = module._derive_report(
-        claims_for, forged_findings, meta, "acct-seller", [], [], {},
+        claims_for, forged_findings, meta, SELLER, [], [], {},
         {"supported": False, "severity": "MINOR", "safety_critical": False})
     forged = {
         "report": report,
@@ -394,7 +396,7 @@ def test_code_detected_conflict_reaches_the_panel_and_the_flags(module, c):
     low_later = item(
         "E-LOW",
         "AUCTION LISTING 2026-05-01. Odometer shows 62,000 miles.",
-        uploader="acct-buyer2", role="BUYER",
+        uploader=BUYER2, role="BUYER",
         declared_class="VEHICLE_HISTORY_RECORD",
         observations=[{"doc_date": "2026-05-01",
                        "odometer_reading": 62000,
@@ -425,7 +427,7 @@ def test_explained_conflict_does_not_headline_rollback(module, c):
         "E-LOW",
         "SERVICE NOTE 2026-05-01. Odometer cluster replaced at 62,000 "
         "miles indicated; original unit failed at 87,500 miles.",
-        uploader="acct-buyer2", role="BUYER",
+        uploader=BUYER2, role="BUYER",
         declared_class="SERVICE_INVOICE",
         observations=[{"doc_date": "2026-05-01",
                        "odometer_reading": 62000,
@@ -453,7 +455,7 @@ def test_unexplained_claim_without_grounded_quote_stays_not_explained(
     grounded quote — asserting it without one is recorded NOT_EXPLAINED."""
     low_later = item(
         "E-LOW", "AUCTION LISTING 2026-05-01. Odometer shows 62,000 miles.",
-        uploader="acct-buyer2", role="BUYER",
+        uploader=BUYER2, role="BUYER",
         declared_class="VEHICLE_HISTORY_RECORD",
         observations=[{"doc_date": "2026-05-01",
                        "odometer_reading": 62000,
@@ -506,7 +508,7 @@ def _forged_from(module, meta, conflicts, findings, explanations=None,
     diagnostic = {"supported": False, "severity": "MINOR",
                   "safety_critical": False}
     report = module._derive_report(
-        claims_for, findings, meta, "acct-seller", disputes or [],
+        claims_for, findings, meta, SELLER, disputes or [],
         conflicts, explanations or {}, diagnostic, identity_status)
     return {
         "report": report,
@@ -573,7 +575,7 @@ def test_explanation_shading_with_no_consequence_survives(module, c):
         "E-LOW",
         "SELLER NOTE 2026-05-01. Odometer shows 62,000 miles after "
         "cluster service.",
-        uploader="acct-seller", role="SELLER",
+        uploader=SELLER, role="SELLER",
         declared_class="SELLER_DECLARATION",
         observations=[{"doc_date": "2026-05-01",
                        "odometer_reading": 62000,
@@ -588,7 +590,7 @@ def test_explanation_shading_with_no_consequence_survives(module, c):
     ], explanations={"MC-01": "NOT_EXPLAINED"})
     panel_says(mine)
     _, meta, conflicts = _stored_meta(module, c, aid)
-    assert len(conflicts) == 1 and conflicts[0]["accounts"] == ["acct-seller"]
+    assert len(conflicts) == 1 and conflicts[0]["accounts"] == [SELLER]
     same_findings = {
         "CL-01": [{"claim_id": "CL-01", "evidence_id": "E-SVC",
                    "status": "SUPPORTED", "severity": "MODERATE",
@@ -617,7 +619,7 @@ def test_explanation_flip_with_a_consequence_refuses_the_round(module, c):
     buyer_low = item(
         "E-LOW",
         "AUCTION LISTING 2026-05-01. Odometer shows 62,000 miles.",
-        uploader="acct-buyer2", role="BUYER",
+        uploader=BUYER2, role="BUYER",
         declared_class="VEHICLE_HISTORY_RECORD",
         observations=[{"doc_date": "2026-05-01",
                        "odometer_reading": 62000,

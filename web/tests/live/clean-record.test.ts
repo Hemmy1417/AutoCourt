@@ -164,6 +164,9 @@ describe.skipIf(!LIVE)("a clean record on the deployment of record", () => {
     record = (await getRecord(id, true))!;
     const source = record.items.find((i) => i.evidence_id === sourceId)!;
     expect(source.status).toBe("EXTRACTED");
+    // No party authored the source; the wallet that asked for it is recorded apart.
+    expect(source.uploader_account).toBe("");
+    expect(source.added_by).toBe(seller);
     expect(source.file_sha256).toBe(expected);
     expect(source.text_sha256).toBe(await sha256Text(anchorStoredText(rendered)));
 

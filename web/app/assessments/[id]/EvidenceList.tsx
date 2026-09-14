@@ -5,7 +5,7 @@ import { verifyMessage } from "viem";
 
 import { attestationMessage } from "../../../lib/attest";
 import { sameAddress } from "../../../lib/chain";
-import { evidenceClassLabel, formatDocDate, formatOdometer } from "../../../lib/present";
+import { evidenceClassLabel, formatDocDate, formatOdometer, sourceHostName } from "../../../lib/present";
 import { getItem } from "../../../lib/read";
 import type { ItemRecord, ItemSummary, RecordView } from "../../../lib/types";
 import { Chip, Empty, ErrorNotice, IdTag, Spinner } from "../../components/bits";
@@ -74,9 +74,11 @@ function EvidenceCard({ record, item, account }: { record: RecordView; item: Ite
   const [error, setError] = useState<unknown>(null);
   const anchor = item.lane === "ANCHOR";
   const attested = useAttestation(item);
-  const who = sameAddress(item.uploader_account, account)
+  // An upload names its uploader; an independent source, the wallet that asked for it.
+  const party = (anchor ? item.added_by : item.uploader_account) ?? "";
+  const who = sameAddress(party, account)
     ? "you"
-    : sameAddress(item.uploader_account, record.seller_account)
+    : sameAddress(party, record.seller_account)
       ? "the seller"
       : "a buyer";
 
@@ -97,11 +99,14 @@ function EvidenceCard({ record, item, account }: { record: RecordView; item: Ite
 
       <div className="row" style={{ flexWrap: "wrap", gap: 6, marginTop: 10 }}>
         {anchor ? (
-          item.status === "EXTRACTED" ? (
-            <Chip tone="ok">Fetched and hash-agreed by every validator</Chip>
-          ) : (
-            <Chip tone="dim">Validators could not match it; never judged</Chip>
-          )
+          <>
+            {party ? <span className="tag">Requested by {who}</span> : null}
+            {item.status === "EXTRACTED" ? (
+              <Chip tone="ok">Fetched and hash-agreed by every validator</Chip>
+            ) : (
+              <Chip tone="dim">Validators could not match it; never judged</Chip>
+            )}
+          </>
         ) : (
           <>
             <span className="tag">Uploaded by {who}</span>
@@ -145,9 +150,9 @@ function EvidenceCard({ record, item, account }: { record: RecordView; item: Ite
           <>
             {anchor && full.url ? (
               <p className="fine" style={{ marginTop: 10 }}>
-                Source:{" "}
+                Source: {sourceHostName(hostOf(full.url))} ·{" "}
                 <a className="link" href={full.url} target="_blank" rel="noreferrer" title={full.url}>
-                  {hostOf(full.url)} ↗
+                  open what the validators read ↗
                 </a>
               </p>
             ) : null}

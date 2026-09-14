@@ -1,5 +1,10 @@
 /**
- * The live arc — the whole user path on the deployment of record.
+ * The live arc — the whole user path, as it ran on the earlier deployment
+ * 0xE26B3C4A…7998, whose writes were open to any wallet. It names parties
+ * as plain accounts ("arc-seller") sent from one operator wallet, which the
+ * deployment of record refuses: every account it records must be the
+ * signer. Kept as the record of how the README's earlier proofs were made;
+ * the proofs for the deployment of record are web/tests/live.
  *
  *   node scripts/arc.mjs 0x<contract>
  *

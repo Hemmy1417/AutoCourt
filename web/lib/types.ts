@@ -33,6 +33,8 @@ export interface ItemSummary {
   uploader_signature?: string;
   /** For APPEAL items: 0 until an appeal round judges it. */
   judged_version?: number | null;
+  /** Independent sources only: the wallet that asked the validators to fetch it. */
+  added_by?: string | null;
 }
 
 export interface Observation {
@@ -148,6 +150,11 @@ export interface ChainConfig {
   max_claims: number;
   max_items_at_submission: number;
   max_new_items_per_appeal: number;
+  max_seller_items_at_submission: number;
+  max_other_items_at_submission: number;
+  max_seller_items_per_appeal: number;
+  max_other_items_per_appeal: number;
+  writes_bound_to_signer: boolean;
   max_evidence_items: number;
   per_item_text_cap: number;
   max_runs_per_assessment: number;

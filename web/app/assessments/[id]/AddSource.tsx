@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 
-import type { Act } from "../../../lib/acts";
+import { sideSlots, type Act } from "../../../lib/acts";
 import { CONTRACT_ADDRESS } from "../../../lib/config";
-import { renderedText } from "../../../lib/evidence/anchor";
+import { nhtsaRecallsUrl, renderedText } from "../../../lib/evidence/anchor";
 import { sha256Text } from "../../../lib/evidence/hash";
 import { anchorItemJson, nextEvidenceId } from "../../../lib/packet";
-import { sentence } from "../../../lib/present";
+import { sentence, sourceHostName, vehicleTitle } from "../../../lib/present";
 import { getRecord } from "../../../lib/read";
 import { inFlight, writeAndConfirm, type TxProgress } from "../../../lib/tx";
 import type { ChainConfig, RecordView } from "../../../lib/types";
@@ -32,7 +32,7 @@ export function AddSource({
   act: Act;
   onChange: () => void;
 }) {
-  const { client, address } = useWallet();
+  const { client, account, address } = useWallet();
   const [url, setUrl] = useState("");
   const [label, setLabel] = useState("");
   const [reading, setReading] = useState(false);
@@ -41,6 +41,9 @@ export function AddSource({
   const [error, setError] = useState<unknown>(null);
   const busy = reading || (progress ? inFlight(progress.stage) : false);
   const allowlist = config.anchor_allowlist;
+  const onList = (h: string) => allowlist.some((a) => h === a || h.endsWith(`.${a}`));
+  const recalls = onList("api.nhtsa.gov") ? nhtsaRecallsUrl(record) : "";
+  const slots = account ? sideSlots(record, config, account) : null;
 
   const host = (() => {
     try {
@@ -49,7 +52,7 @@ export function AddSource({
       return "";
     }
   })();
-  const allowed = Boolean(host) && allowlist.some((h) => host === h || host.endsWith(`.${h}`));
+  const allowed = Boolean(host) && onList(host);
 
   async function send() {
     setError(null);
@@ -125,6 +128,26 @@ export function AddSource({
         </p>
       ) : (
         <>
+          {recalls ? (
+            <div className="panel" style={{ marginTop: 14 }}>
+              <p className="small">
+                <strong>Safety recalls.</strong> NHTSA publishes every recall issued for a make, model
+                and year. Its list for the {vehicleTitle(record)} shows which recalls were issued for
+                that model; it cannot say whether one particular car&apos;s recall was repaired.
+              </p>
+              <button
+                className="btn btn-ghost"
+                style={{ marginTop: 10 }}
+                disabled={busy || url === recalls}
+                onClick={() => {
+                  setUrl(recalls);
+                  setLabel(`NHTSA recalls for the ${vehicleTitle(record)}`.slice(0, 80));
+                }}
+              >
+                {url === recalls ? "NHTSA's recall list is filled in" : "Use NHTSA's recall list"}
+              </button>
+            </div>
+          ) : null}
           <div className="field" style={{ marginTop: 14 }}>
             <label htmlFor="anchor-url">Source address</label>
             <input
@@ -132,12 +155,12 @@ export function AddSource({
               type="url"
               value={url}
               onChange={(e) => setUrl(e.target.value.trim())}
-              placeholder="https://raw.githubusercontent.com/…/registry-extract.txt"
+              placeholder={recalls ? "https://api.nhtsa.gov/recalls/recallsByVehicle?…" : "https://raw.githubusercontent.com/…/registry-extract.txt"}
             />
             <span className="hint">
               {url && host && !allowed
                 ? `${host} is not an accepted source on this deployment.`
-                : `Accepted sources: ${allowlist.join(", ")}`}
+                : `Accepted sources: ${allowlist.map(sourceHostName).join("; ")}.`}
             </span>
           </div>
           <div className="field">
@@ -154,7 +177,14 @@ export function AddSource({
           </div>
           <p className="fine">
             This browser reads it once to commit the fingerprint the validators must match. If what
-            they fetch differs, the item is recorded as unavailable and never judged.
+            they fetch differs, the item is recorded as unavailable and never judged. The source is
+            recorded as added by your wallet
+            {slots
+              ? slots.left === 1
+                ? ", and uses the last slot your side has before sealing"
+                : `, and uses one of the ${slots.left} slots your side has left before sealing`
+              : ""}
+            .
           </p>
           <ErrorNotice error={error} />
           <button

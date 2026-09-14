@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from conftest import (BUYER, BUYER_ADDR, SELLER, SELLER_ADDR, VIN,
+from conftest import (BUYER, BUYER_ADDR, SELLER, SELLER_ADDR, STRANGER_ADDR, VIN,
                       as_, build_assessment, claims, err, hist_item, item,
                       sha, svc_item, vehicle)
 
@@ -113,12 +113,49 @@ def test_duplicate_evidence_id_is_refused(module, c):
 
 
 def test_item_cap_before_sealing(module, c):
+    """Eight slots before sealing: five the seller's, three shared by every
+    other wallet. Full on both sides, the total cap holds."""
     aid = build_assessment(module, c, items=[], seal=False)
-    for i in range(8):
+    for i in range(5):
         text = f"Document number {i} with some content to record."
         c.submit_evidence_text(aid, item(f"E-{i:02d}", text))
+    as_(module, BUYER_ADDR)
+    for i in range(5, 8):
+        text = f"Buyer document {i} with some content to record."
+        c.submit_evidence_text(aid, item(f"E-{i:02d}", text, uploader=BUYER,
+                                         role="BUYER"))
+    as_(module, SELLER_ADDR)
     with pytest.raises(err(module), match="at most 8 items"):
         c.submit_evidence_text(aid, item("E-09", "one too many here"))
+
+
+def test_the_sellers_slots_are_the_sellers(module, c):
+    aid = build_assessment(module, c, items=[], seal=False)
+    for i in range(5):
+        c.submit_evidence_text(aid, item(f"E-{i:02d}", f"Seller doc {i} text."))
+    with pytest.raises(err(module), match="seller of record may enter at "
+                                          "most 5 items before sealing"):
+        c.submit_evidence_text(aid, item("E-06", "a sixth seller document"))
+
+
+def test_other_wallets_share_three_slots_and_never_touch_the_sellers(
+        module, c):
+    aid = build_assessment(module, c, items=[], seal=False)
+    as_(module, BUYER_ADDR)
+    for i in range(2):
+        c.submit_evidence_text(aid, item(f"E-B{i}", f"Buyer doc {i} text.",
+                                         uploader=BUYER, role="BUYER"))
+    as_(module, STRANGER_ADDR)
+    c.submit_evidence_text(aid, item("E-X1", "A stranger's first document.",
+                                     uploader=STRANGER_ADDR, role="BUYER"))
+    with pytest.raises(err(module), match="other than the seller may enter "
+                                          "at most 3 items before sealing"):
+        c.submit_evidence_text(aid, item("E-X2", "and a second one here",
+                                         uploader=STRANGER_ADDR, role="BUYER"))
+    # The seller's five slots are untouched.
+    as_(module, SELLER_ADDR)
+    for i in range(5):
+        c.submit_evidence_text(aid, item(f"E-S{i}", f"Seller doc {i} text."))
 
 
 def test_evidence_after_seal_names_the_appeal_path(module, c):
@@ -142,6 +179,7 @@ def test_seller_cannot_dispute_their_own_claims(module, c):
 
 def test_dispute_must_name_recorded_claims(module, c):
     aid = build_assessment(module, c, items=[svc_item()], seal=False)
+    as_(module, BUYER_ADDR)
     with pytest.raises(err(module), match="recorded claim ids"):
         c.record_dispute(aid, BUYER, json.dumps(["CL-99"]), "")
 

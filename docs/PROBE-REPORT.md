@@ -225,3 +225,69 @@ honest gap for a hidden one.
 What remains uncovered, permanently: a private uploaded document can never
 be fetched by validators, and no amount of consensus changes that. It is a
 stated limitation, not a solved problem.
+
+## The render probe (14 Sep): can every validator read a real authority?
+
+Adding NHTSA's recall records to the anchor allowlist freezes a host into a
+deployment, so it was measured first. A disposable probe contract
+([`contracts/probe_render.py`](../contracts/probe_render.py), driven by
+[`web/scripts/probe-render.mjs`](../web/scripts/probe-render.mjs)) had every
+validator call `gl.nondet.web.render(url, mode="text")` inside
+`run_nondet` and agree on the digest of what it read, then compared that
+digest with the app's own fingerprint function run over the same URL.
+
+Probe contract `0xA0383DDDE408fC3a2C2e182ee42096F4D9F7de18` (deploy
+`0xad958c76cf2ea1b300a51cd519a781b191b1d2283acb41e4e75f634759d8f1ea`). Every
+round FINALIZED under MAJORITY_AGREE with the leader in SUCCESS:
+
+| source | served | validators' rendered text | app reproduces it | tx |
+|---|---|---|---|---|
+| this repository's registry extract at `76a39ee` | 682 chars | 678 chars, `4308ed17…682eb6` | yes | `0xeab8968ffd4ecb5a11dbe42b8538a7fe25f5a60040331dca49df3d87bbfb8d27` |
+| NHTSA `recallsByVehicle`, 2003 Honda Accord | 36,156 chars | 36,018 chars, `7da01a7c…e5888a0` | yes | `0x53829677d71434c7f9a5b85356ddcffea6f31cc76cbcb558b1163e3d1fc4c1d2` |
+| NHTSA `campaignNumber` 15V320000 | 112,912 chars | 112,512 chars, `98ecc3da…438c9c78` | yes | `0x5adb6661c23b4dcdaf1600a0b5fe81003ccd9a8fb4124b0e90cd6ee9c51d0904` |
+
+The digests here are over the whole rendered page; the contract hashes only
+its first 8,000 characters, which the app's function caps identically. The
+recall API answers browsers too (`Access-Control-Allow-Origin` echoes the
+calling origin), so the app can take the fingerprint where the adder is.
+
+## Signed writes, and the floor the recall proof found (14 Sep)
+
+Two deployments followed the probe.
+
+**`0xb13808bC01Bd6DB90e4AdEE39F2f4e0191aD0854`** (`autocourt-rules-3`, deploy
+`0x5b4694b94010e8ac98098ec6f97bdf56159f6b1f7fae5a63c4a84b50ee228900`):
+every recorded account bound to the signer, the seal kept with the seller,
+judgment and appeal kept with recorded parties, intake slots split by side,
+strict anchor host parsing, and `api.nhtsa.gov` on the allowlist. Direct
+suite 152, and every new guard mutation-checked: 14 mutants, 14 killed.
+
+Writing the recall proof exposed an asymmetry before that deployment held a
+single record. The derivation stopped an accuser's own upload from turning
+`INDEPENDENT` support into `CONFLICTING_EVIDENCE`, but not the mirror: support
+that was only `FIRST_PARTY` against an `INDEPENDENT` contradiction derived
+`CONFLICTING_EVIDENCE`. A seller could have answered NHTSA's recall list with
+a signed declaration of their own and turned a contradiction into a
+conflict. Fixed as one branch in `_derive_claim`, two direct tests, and six
+mutants (branch removed, any first-party support, any qualifying
+contradiction, no source needed, sufficiency ignored, ruleset not bumped),
+all killed.
+
+**`0x081Fe3bEb829226E0C8E95f5f81146132E9C35A7`** (`autocourt-rules-4`, deploy
+`0xa7878647ddd54832d74829b730aee43320cd98a7d6fa244e3e6d25cbd435cbc8`) is the
+deployment of record. Its source is byte-identical to the repository's
+(sha256 `7cf6b22ce1f943c48c87b8fb1c730186288a9262949c819d802da91e9d02db28`).
+
+The recall proof then exercised the fixed branch live. On `ac-000002`'s
+appeal the leader's panel read the seller's declaration as support, and the
+claim derived `CLAIM_CONTRADICTED` / HIGH with support `[FIRST_PARTY]` and
+contradiction `[INDEPENDENT]`; under `autocourt-rules-3` the same findings
+derive `CONFLICTING_EVIDENCE`. One of the four voting validators disagreed,
+and its `[DISAGREE]` print shows why: it read the same declaration as
+undercutting the claim, deriving support `[]` and contradiction
+`[ADVERSE, INDEPENDENT]`. Its verdict, confidence, next action and headline
+were identical to the leader's. The round finalized `MAJORITY_AGREE` (tx
+`0x2bf0489fe7a6d2d4c74b7019ee7a1da98c24481d3e23c3acf5e062539d5adccc`), so
+nothing was lost, but it is the citation-round lesson in a new place: the
+report's class sets are inside equivalence, and a class that changes no
+decision can still split a validator. Recorded here as observed, not fixed.

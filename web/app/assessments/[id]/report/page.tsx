@@ -50,7 +50,7 @@ export default function Report() {
           <h2 style={{ marginTop: 6 }}>No verdict to show yet</h2>
           <p className="muted" style={{ marginTop: 12 }}>
             {record.state === "OPEN"
-              ? "This record is still taking evidence. Once the seller seals the packet, anyone can ask the validator panel to judge it, and the verdict appears here."
+              ? "This record is still taking evidence. Once the seller seals the packet, any party to the record can ask the validator panel to judge it, and the verdict appears here."
               : "The packet is sealed and waiting for the panel. When a round survives consensus, its verdict appears here."}
           </p>
           <Link className="btn btn-ghost" style={{ marginTop: 20 }} href={`/assessments/${id}`}>

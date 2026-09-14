@@ -76,7 +76,8 @@ export default function RecordPage() {
               <h3>Sealed and ready for the panel</h3>
               <p className="muted small" style={{ marginTop: 8 }}>
                 The packet is sealed under its manifest root, so nothing can be added or changed.
-                Anyone can now ask the validator panel to judge it.
+                Any party to the record can now ask the validator panel to judge it: the seller,
+                a wallet that disputed a claim, or a wallet that added evidence.
               </p>
             </div>
           ) : null}

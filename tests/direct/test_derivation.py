@@ -268,6 +268,68 @@ def test_sybil_dispute_cannot_mint_a_conflict(module):
     assert major["verdict"] == "PHYSICAL_INSPECTION_REQUIRED"
 
 
+def test_first_party_support_cannot_mint_a_conflict_against_a_source(module):
+    """The mirror of the sybil floor: support resting only on first-party
+    uploads — the seller's own paperwork, or a wallet that never disputed
+    the claim — cannot drag an INDEPENDENT contradiction into
+    CONFLICTING_EVIDENCE. The claim is judged as if that support were
+    absent, and the record still shows it was offered."""
+    items = [_item("E-R", lane="ANCHOR", account=""),
+             _item("E-S", account=SELLER_A),
+             _item("E-X", account="acct-friend")]
+    for supporters in (["E-S"], ["E-X"], ["E-S", "E-X"]):
+        got = _derive(module,
+                      [_finding("E-R", "CONTRADICTED")]
+                      + [_finding(e, "SUPPORTED") for e in supporters],
+                      items)
+        assert got["verdict"] == "CLAIM_CONTRADICTED", supporters
+        assert got["adverse"] is True
+        assert got["confidence"] == "HIGH"
+        assert got["next_action"] == "RAISE_WITH_SELLER"
+        assert got["support_classes"] == ["FIRST_PARTY"]
+        assert got["contradict_classes"] == ["INDEPENDENT"]
+    # The source still has to settle the claim, as it would alone.
+    unsure = _derive(module,
+                     [_finding("E-R", "CONTRADICTED"),
+                      _finding("E-S", "SUPPORTED")],
+                     items, sufficient=False)
+    assert unsure["verdict"] == "INCONCLUSIVE"
+    # A first-party accuser beside the source changes nothing either.
+    both = _derive(module,
+                   [_finding("E-R", "CONTRADICTED"),
+                    _finding("E-B", "CONTRADICTED"),
+                    _finding("E-S", "SUPPORTED")],
+                   items + [_item("E-B", account="acct-buyer")],
+                   disputers={"acct-buyer"})
+    assert both["verdict"] == "CLAIM_CONTRADICTED"
+
+
+def test_qualifying_support_against_a_source_is_a_real_conflict(module):
+    """Support that is not first-party still conflicts: a second source that
+    disagrees, or a disputer's own upload backing the claim it disputes."""
+    items = [_item("E-R", lane="ANCHOR", account=""),
+             _item("E-R2", lane="ANCHOR", account=""),
+             _item("E-B", account="acct-buyer"),
+             _item("E-S", account=SELLER_A)]
+    two_sources = _derive(module,
+                          [_finding("E-R", "CONTRADICTED"),
+                           _finding("E-R2", "SUPPORTED")], items)
+    assert two_sources["verdict"] == "CONFLICTING_EVIDENCE"
+    against_interest = _derive(module,
+                               [_finding("E-R", "CONTRADICTED"),
+                                _finding("E-B", "SUPPORTED")],
+                               items, disputers={"acct-buyer"})
+    assert against_interest["verdict"] == "CONFLICTING_EVIDENCE"
+    # Qualifying support beside the seller's own is still qualifying.
+    mixed = _derive(module,
+                    [_finding("E-R", "CONTRADICTED"),
+                     _finding("E-B", "SUPPORTED"),
+                     _finding("E-S", "SUPPORTED")],
+                    items, disputers={"acct-buyer"})
+    assert mixed["verdict"] == "CONFLICTING_EVIDENCE"
+    assert mixed["support_classes"] == ["ADVERSE", "FIRST_PARTY"]
+
+
 def test_same_account_items_are_one_voice(module):
     got = _derive(module,
                   [_finding("E-S", "SUPPORTED"),

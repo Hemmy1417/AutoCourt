@@ -16,9 +16,11 @@ AutoCourt was first built full stack: a Next.js app with API routes,
 PostgreSQL, a job queue and a worker that sent every transaction from an
 operator's wallet. On 14 Sep the Vercel build of that monorepo failed, and the
 user directed the build into the shape of their Verda repository: one web app
-that talks to the contract directly. Nothing about the contract changed, and
-nothing had to: it never checked for an operator, so the same deployment of
-record, with every record and proof on it, serves the new app.
+that talks to the contract directly. The contract needed no change to run
+without an operator, because it never checked for one. That same evening it
+was redeployed to close the gap the operator had been hiding (see below), so
+the app now serves a new deployment of record, and the earlier deployment's
+records and proofs stay on chain where the README lists them.
 
 | | |
 |---|---|
@@ -37,9 +39,31 @@ queue's failure and retry machinery (each write is one signed transaction with
 a visible lifecycle), share links and sessions (a record is public; a wallet
 is the identity), and the private pre-submission draft (an item is public the
 moment its uploader publishes it, and the publish step says so). What it
-exposed, honestly: the contract's writes are open to any wallet, which the
-operator used to hide; [THREAT-MODEL.md](THREAT-MODEL.md) states what that
-allows.
+exposed: the contract's writes were open to any wallet, which the operator
+used to hide. The redeploy closed that in the contract itself (ruleset
+`autocourt-rules-3`, then `-4`):
+
+- **Every account a write records is the wallet that signed it** — the seller
+  of record, each uploader, each disputer, each appellant. A claimed account
+  that differs from the signer is refused in words, never recorded.
+- **Only the seller of record seals.** Only a recorded party (the seller, a
+  disputer, an uploader, or a wallet that added an independent source) may
+  ask for the panel, add appeal evidence or appeal.
+- **Intake slots are split by side.** Before sealing the seller owns 5 of the
+  8 slots and every other wallet shares 3; each appeal's 4 new slots split
+  2 and 2. An independent source spends a slot on the side of the wallet
+  that asked for it, which the record names (`added_by`).
+- **An anchor URL must name a plain host,** so userinfo, a backslash or a
+  port cannot smuggle a different host past the allowlist.
+- **The allowlist names a real public authority,** `api.nhtsa.gov`: NHTSA's
+  recall records, which a render probe showed every validator reaching and
+  agreeing on before the deploy (PROBE-REPORT.md).
+
+Designing the recall proof then exposed one asymmetry in the derivation,
+fixed in `autocourt-rules-4` before the new deployment held a record: first-
+party support could turn an independent source's contradiction into
+`CONFLICTING_EVIDENCE` (§4.4). [THREAT-MODEL.md](THREAT-MODEL.md) states what
+remains.
 
 The sections below are the founding decisions. The contract design (§1, §3.2
 to §3.5, §4, §6) is exactly what is deployed. Where a section described the
@@ -97,9 +121,10 @@ now in `web/lib`:
   commits per item (§3.4). Extracted text is rendered as plain text only.
 - **Wallet-only identity.** The account IS an address. It is the seller of
   record, the uploader on every item it signs, and the disputer on every
-  dispute it sends. Identity is self-attested (anyone can mint wallets), and
-  the corroboration ladder (§4.4) is designed so that buys nothing that
-  matters.
+  dispute it sends, and the contract enforces that: every account a write
+  records is the transaction's signer. Identity is self-attested (anyone can
+  mint wallets), and the corroboration ladder (§4.4) is designed so that buys
+  nothing that matters.
 - **Validation in code.** VIN format and check digit, OBD-II code shape and
   mileage parsing (`validation/`), each with unit tests.
 - **Acts as a pure function.** What a visitor may do to a record is computed
@@ -210,11 +235,22 @@ distinct entry lane with a **narrow, every-validator fetch at entry**:
   `innerText` passed through its webdriver's `normalizeWhitespace` (each
   line trimmed, whitespace runs collapsed, blank-line runs collapsed), and the
   contract hashes the first 8,000 characters of that. The app reproduces it
-  exactly for plain-text pages (`web/lib/evidence/anchor.ts`). Found live:
-  `ac-000023`'s registry extract, whose readings sit in columns, entered
-  `SOURCE_UNAVAILABLE` when the fingerprint was taken over the raw bytes
-  although every validator reached it and agreed; the same file entered
-  `EXTRACTED` on `ac-000024` once it was taken over the rendered text.
+  exactly for plain-text and JSON pages (`web/lib/evidence/anchor.ts`). Found
+  live on the earlier deployment: `ac-000023`'s registry extract, whose
+  readings sit in columns, entered `SOURCE_UNAVAILABLE` when the fingerprint
+  was taken over the raw bytes although every validator reached it and
+  agreed; the same file entered `EXTRACTED` on `ac-000024` once it was taken
+  over the rendered text.
+- The allowlist names two hosts. `api.nhtsa.gov` is a public authority:
+  NHTSA's recall records, served as JSON, which the record page offers as a
+  one-click source for the listed make, model and year. Commit-pinned
+  `raw.githubusercontent.com` stays for documents no public API publishes,
+  standing in for a registry. The wallet that asks for a source is recorded
+  as `added_by`, and the source spends a slot on that wallet's side.
+- Before the host was frozen into a deployment, a disposable probe contract
+  had every validator render three URLs and agree on a digest, and the app's
+  fingerprint function reproduced each digest (PROBE-REPORT.md, "The render
+  probe").
 
 This is the only fetch in the system. Uploaded evidence never rides it, and
 a deployment can run with an empty allowlist (then `VERIFIED` is honestly
@@ -242,14 +278,14 @@ at implementation):
 
 | method | kind | does |
 |---|---|---|
-| `create_assessment(vehicle_json, claims_json)` | write, det | VIN code-validated (format + ISO 3779 check digit); bounded claim set with the seller's declared values; returns `ac-NNNNNN` |
-| `submit_evidence_text(id, item_json)` | write, det | one uploaded item (§3.1); verifies `text_sha256` over the supplied text; refuses past caps or after seal |
-| `submit_anchor_item(id, item_json)` | write, nondet | independent-anchor entry (§3.5); every validator fetches; exact-hash equivalence |
-| `record_dispute(id, dispute_json)` | write, det | buyer's disputed-claim flags + bounded note; recordable before AND after seal — a post-verdict dispute is what opens the appeal path, tagged with the run count it followed |
-| `submit_assessment(id, manifest_json)` | write, det | seals the packet: claims + item-id list + manifest root, recomputed against stored items; immutable once sealed |
-| `adjudicate(id)` | write, nondet | one panel round over the **stored** packet; findings validated at the boundary; verdicts derived in code; run recorded |
-| `submit_appeal_evidence(id, item_json)` | write, det | NEW post-verdict item (≤ 4 per appeal), tagged with uploader and timestamp (S36) |
-| `readjudicate(id, appeal_json)` | write, nondet | appeal: RECORDED items by id reference (read from storage — §3.4), NEW items by id from appeal evidence, the appealed run's verdict included in the prompt (brief §13); prior runs immutable |
+| `create_assessment(vehicle_json, claims_json)` | write, nondet | VIN code-validated (format + ISO 3779 check digit) then decoded at the federal registry by every validator; the seller of record is the signer; bounded claim set with the seller's declared values; returns `ac-NNNNNN` |
+| `submit_evidence_text(id, item_json)` | write, det | one uploaded item (§3.1) in the signer's name, role SELLER for the seller of record and BUYER for any other wallet; verifies `text_sha256` over the supplied text; refuses past the side's slots, past caps or after seal |
+| `submit_anchor_item(id, item_json)` | write, nondet | independent-anchor entry (§3.5); strict host parsing, then the signer's side slot; every validator fetches; exact-hash equivalence; records `added_by` |
+| `record_dispute(id, account, claim_ids_json, note)` | write, det | disputed-claim flags + bounded note in the signer's name (never the seller's); recordable before AND after seal — a post-verdict dispute is what opens the appeal path, tagged with the run count it followed |
+| `submit_assessment(id, manifest_root)` | write, det | seals the packet, from the seller of record only: the manifest root is recomputed against stored items; immutable once sealed |
+| `adjudicate(id)` | write, nondet | from a recorded party only: one panel round over the **stored** packet; findings validated at the boundary; verdicts derived in code; run recorded |
+| `submit_appeal_evidence(id, item_json)` | write, det | from a recorded party only: NEW post-verdict item (≤ 4 per appeal, 2 per side), tagged with uploader and phase (S36) |
+| `readjudicate(id, appellant_account, grounds)` | write, nondet | appeal in the signer's name, by a recorded party: RECORDED items by id reference (read from storage — §3.4), NEW items from appeal evidence, the appealed run's headline included in the prompt (brief §13); prior runs immutable |
 | `get_assessment` / `get_run` / `get_verdict` / `get_manifest` | views | the record, machine-readable; `get_verdict` returns the latest terminal-success run **plus run number and total runs**, so a superseded verdict can never be confused with the standing one |
 | `get_stats()` / `get_config()` | views | counters; every bound and the anchor allowlist, so the frontend never guesses a limit |
 
@@ -260,13 +296,14 @@ at implementation):
 over the identical packet version already stands: a re-roll is only reachable
 through `readjudicate`, which is a recorded, attributed, capped act —
 verdict-shopping is unrepresentable, not merely auditable. `readjudicate`
-is callable only from `ADJUDICATED`, only in the name of a **recorded
-party** (the seller of record, or an account with recorded evidence or a
-recorded dispute on this record), and only when there is new evidence or a
-new dispute. Each refusal sentence names the specific precondition.
-`adjudicate` itself names no caller: anyone may ask the panel to judge a
-sealed packet, and a round that fails leaves the record sealed for anyone to
-ask again.
+is callable only from `ADJUDICATED`, only by a **recorded party** signing in
+its own name (the seller of record, or a wallet with recorded evidence, a
+recorded dispute or an independent source it asked for on this record), and
+only when there is new evidence or a new dispute. Each refusal sentence names
+the specific precondition. `adjudicate` asks the same of its caller: any
+recorded party may ask the panel to judge a sealed packet, and a round that
+fails leaves the record sealed for any of them to ask again. A stranger
+becomes a party by disputing a claim in its own name.
 
 ### 4.2 Failure ladder (S5, complete)
 
@@ -276,7 +313,7 @@ ask again.
 | anchor fetch: all nodes unreachable or hash-mismatch | item enters as `SOURCE_UNAVAILABLE` status; never an adverse finding |
 | anchor fetch: reachability split | no state change; retry — never a verdict from partial sight |
 | transport failure before a transaction exists | nothing reached the chain and nothing was signed; the write reports it and the button is usable again. A failure to READ a submitted transaction is never a failure of the write: the hash is shown and polling continues |
-| LLM failure mid-round (the round ends without a verdict) | state unchanged on chain, the record stays SEALED, and anyone may request adjudication again: a new round with its own transaction |
+| LLM failure mid-round (the round ends without a verdict) | state unchanged on chain, the record stays SEALED, and any recorded party may request adjudication again: a new round with its own transaction |
 | malformed / structurally invalid model output | never survives consensus: the leader is refused and rotated, and if no valid output emerges the transaction fails with state unchanged. The chain records only judgments that survived consensus |
 | ungrounded quote on one finding | **not** a run failure — drop-and-downgrade (§4.5) |
 | protocol-level UNDETERMINED / CANCELED | no contract outcome, never mapped to a verdict. The write reports that the validators did not agree and nothing was recorded; sending it again starts a fresh round. A status that has not answered yet is polled, never resubmitted: a lost response is not a refusal |
@@ -328,10 +365,24 @@ manufacture — `ADVERSE` support can strengthen adverse findings and lift a
 claim to `PARTIALLY_VERIFIED`, never to `VERIFIED`. The S34 floor holds
 adverse findings that rest solely on the accusing party's own uploads at
 `INSUFFICIENT_EVIDENCE` / `PHYSICAL_INSPECTION_REQUIRED`, keyed on the
-verdict's `adverse` attribute (§6), never on a name list. Stated plainly:
-account identity is app-attested, and Sybil collusion is *detectable*
-(same-hash, same-account rules, on-chain attribution) and *priced*
-(the ladder), not prevented.
+verdict's `adverse` attribute (§6), never on a name list.
+
+Neither side's own uploads can turn an independent source into a conflict.
+An accuser's first-party contradiction against `INDEPENDENT` support caps the
+claim at `PARTIALLY_VERIFIED` (or forces inspection when severe) instead of
+minting `CONFLICTING_EVIDENCE`. The mirror, added in `autocourt-rules-4`:
+support that is only `FIRST_PARTY` (the seller's own paperwork, or a wallet
+that never disputed the claim) against an `INDEPENDENT` contradiction is
+judged as the contradiction alone would be, `CLAIM_CONTRADICTED` when the
+record is sufficient. Before it, a seller could answer NHTSA's recall list
+with a signed declaration and turn a contradiction into "conflicting
+evidence". The live recall record exercised exactly that: its appeal panel
+read the seller's declaration as support, and the claim stayed contradicted.
+
+Stated plainly: identity is a wallet, and the contract binds every recorded
+account to the transaction's signer; Sybil collusion (one person, several
+wallets) is *detectable* (same-hash, same-account rules, on-chain
+attribution) and *priced* (the ladder), not prevented.
 
 ### 4.5 Quote grounding: word-token, drop-and-downgrade
 
@@ -350,7 +401,8 @@ one finding — never the availability of the product's core verb.
 ### 4.6 Bounds (all published via `get_config()`)
 
 `MAX_CLAIMS 12 · MAX_EVIDENCE_ITEMS 12 (8 at submission + 4 appeal) ·
-MAX_NEW_ITEMS_PER_APPEAL 4 · PER_ITEM_TEXT_CAP 6000 chars ·
+MAX_NEW_ITEMS_PER_APPEAL 4 · slots by side: seller 5 / others 3 before
+sealing, 2 / 2 per appeal · MAX_DISPUTING_ACCOUNTS 8 · PER_ITEM_TEXT_CAP 6000 chars ·
 PER_WRITE_JSON_CAP 8000 chars · TOTAL_JUDGED_TEXT_CAP 72000 ·
 MAX_RUNS_PER_ASSESSMENT 4 · QUOTE_MIN 8 / QUOTE_CAP 240 / MAX_QUOTES 3 ·
 NOTE_CAP 200 · VIN length 17 · ANCHOR_FETCH_CAP 8000 bytes ·
@@ -434,17 +486,22 @@ explicit RESERVED note.
 recomputed over the stored items; intake is closed) → `ADJUDICATED` (a run
 survived consensus). `ADJUDICATED --appeal (new evidence or a new
 dispute)--> ADJUDICATED` with a new run and a new packet version, up to the
-contract's run limit. A failed round leaves the record SEALED for anyone to
-retry, so no state waits on a mover that might not come (S26). **Evidence
+contract's run limit. A failed round leaves the record SEALED for any
+recorded party to retry, so no state waits on a single mover that might not
+come (S26). **Evidence
 after a verdict** never mutates the verdict; it enables a new run (S33 shape).
 **A dispute after a verdict** does the same.
 
-**Role × act matrix** (`web/lib/acts.ts`, pure, unit-tested): the seller of
-record opens the record, adds evidence and sources, and seals; any other
-connected wallet adds evidence and sources in its own name and disputes
-claims; anyone connected requests adjudication of a sealed packet; a recorded
-party (the seller, a disputer or an uploader) appeals. An act a precondition
-blocks is listed with the reason in words, not offered as a button that fails.
+**Role × act matrix** (`web/lib/acts.ts`, pure, unit-tested, mirroring the
+contract rule for rule): the seller of record opens the record, adds evidence
+and sources within the seller's 5 slots, and seals; any other connected
+wallet adds evidence and sources in its own name within the 3 slots the other
+wallets share, and disputes claims; a recorded party (the seller, a disputer,
+an uploader or a wallet that asked for a source) requests adjudication of a
+sealed packet, adds appeal evidence within its side's 2 slots, and appeals. An
+act a precondition blocks is listed with the reason in words, not offered as a
+button that fails, and each upload card says how many slots the wallet's side
+has left.
 
 ## 8. Trust story — what GenLayer removes, exactly
 
@@ -463,10 +520,11 @@ vehicle's identity, is read from the federal registry by every validator.
 
 The threat model (`docs/THREAT-MODEL.md`, brief §17) carries this as a
 table: **eliminated by design** (verdict authorship, record rewriting,
-silent re-rolls, a document passed off as another party's), **detectable
-after the fact** (extraction that misstates a document, an item written in
-another account's name, Sybil patterns), **honest limitations** (the
-contract's open writes, wallet-only identity, permanent publicity).
+silent re-rolls, a write in another wallet's name, a stranger sealing or
+re-judging a record, a document passed off as another party's),
+**detectable after the fact** (extraction that misstates a document, Sybil
+patterns), **honest limitations** (shared non-seller slots, wallet-only
+identity, permanent publicity, what a model-year recall list can say).
 
 ### 8.2 Publicity, consent and redaction
 

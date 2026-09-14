@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-import { ANCHOR_FETCH_CAP, anchorStoredText, renderedText } from "../lib/evidence/anchor";
+import { ANCHOR_FETCH_CAP, anchorStoredText, nhtsaRecallsUrl, renderedText } from "../lib/evidence/anchor";
 import { sha256Text } from "../lib/evidence/hash";
 import { PER_ITEM_TEXT_CAP } from "../lib/evidence/normalize";
 
@@ -62,5 +62,24 @@ describe("the bytes a validator hashes for an independent source", () => {
     const cap = (name: string) => Number(CONTRACT.match(new RegExp(`^${name} = ([\\d_]+)`, "m"))?.[1]?.replace(/_/g, ""));
     expect(cap("ANCHOR_FETCH_CAP")).toBe(ANCHOR_FETCH_CAP);
     expect(cap("PER_ITEM_TEXT_CAP")).toBe(PER_ITEM_TEXT_CAP);
+  });
+});
+
+describe("NHTSA's recall list as a source", () => {
+  it("names the vehicle in the query, on the host the deployment allows", () => {
+    const url = nhtsaRecallsUrl({ make: "Honda", model: "Accord", year: 2003 });
+    expect(url).toBe("https://api.nhtsa.gov/recalls/recallsByVehicle?make=Honda&model=Accord&modelYear=2003");
+    expect(url.length).toBeLessThanOrEqual(300);
+    const deploy = readFileSync(new URL("../scripts/deploy.mjs", import.meta.url), "utf8");
+    expect(deploy).toMatch(/ANCHOR_ALLOWLIST = \[[^\]]*"api\.nhtsa\.gov"/);
+  });
+
+  it("encodes a listing's words, so no make or model can move the URL somewhere else", () => {
+    const url = new URL(nhtsaRecallsUrl({ make: " Land Rover ", model: "Sport#x&modelYear=1999@evil", year: 2019 }));
+    expect(url.hostname).toBe("api.nhtsa.gov");
+    expect(url.hash).toBe("");
+    expect(url.searchParams.get("make")).toBe("Land Rover");
+    expect(url.searchParams.get("model")).toBe("Sport#x&modelYear=1999@evil");
+    expect(url.searchParams.getAll("modelYear")).toEqual(["2019"]);
   });
 });

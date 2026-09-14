@@ -6,7 +6,8 @@ import json
 
 import pytest
 
-from conftest import (BUYER, BUYER_ADDR, SELLER, as_, build_assessment,
+from conftest import (BUYER, BUYER_ADDR, SELLER, SELLER_ADDR,
+                      STRANGER_ADDR, account, as_, build_assessment,
                       clear_fetches, err, fetches, finding, hist_item, item,
                       panel_answer, panel_says, prompts, svc_item)
 
@@ -52,13 +53,25 @@ def test_appeal_needs_something_new_on_the_record(module, c):
 
 def test_only_a_recorded_party_may_appeal(module, c):
     aid = adjudicated(module, c)
+    as_(module, BUYER_ADDR)
     c.submit_appeal_evidence(aid, ctr_item())
+    as_(module, STRANGER_ADDR)
     with pytest.raises(err(module), match="recorded party"):
-        c.readjudicate(aid, "acct-nobody", "let me in")
+        c.readjudicate(aid, STRANGER_ADDR, "let me in")
+
+
+def test_an_appeal_is_filed_in_the_signers_name_only(module, c):
+    aid = adjudicated(module, c)
+    as_(module, BUYER_ADDR)
+    c.submit_appeal_evidence(aid, ctr_item())
+    as_(module, STRANGER_ADDR)
+    with pytest.raises(err(module), match="appellant must be the wallet"):
+        c.readjudicate(aid, BUYER, "filed in the buyer's name")
 
 
 def test_appeal_grounds_are_bounded(module, c):
     aid = adjudicated(module, c)
+    as_(module, BUYER_ADDR)
     c.submit_appeal_evidence(aid, ctr_item())
     with pytest.raises(err(module), match="grounds must be"):
         c.readjudicate(aid, BUYER, "")
@@ -116,15 +129,40 @@ def test_prior_runs_are_immutable(module, c):
     assert run2["prior_run"] == 1
 
 
-def test_appeal_item_cap(module, c):
+def test_appeal_slots_are_split_by_side(module, c):
+    """Four new slots per appeal, two per side: the buyers cannot spend the
+    seller's, and once both sides are full the appeal's cap holds."""
     aid = adjudicated(module, c)
-    for i in range(4):
-        text = f"Late document {i} with fresh content to consider."
+    as_(module, BUYER_ADDR)
+    for i in range(2):
         c.submit_appeal_evidence(
-            aid, item(f"E-L{i}", text, uploader=BUYER, role="BUYER",
+            aid, item(f"E-B{i}", f"Late buyer document {i} to consider.",
+                      uploader=BUYER, role="BUYER",
                       declared_class="BUYER_DECLARATION"))
+    with pytest.raises(err(module), match="other than the seller may enter "
+                                          "at most 2 items per appeal"):
+        c.submit_appeal_evidence(aid, ctr_item("E-B9"))
+    as_(module, SELLER_ADDR)
+    for i in range(2):
+        c.submit_appeal_evidence(
+            aid, item(f"E-S{i}", f"Late seller document {i} to consider.",
+                      uploader=SELLER, role="SELLER",
+                      declared_class="SELLER_DECLARATION"))
     with pytest.raises(err(module), match="at most 4 new items"):
-        c.submit_appeal_evidence(aid, ctr_item("E-L9"))
+        c.submit_appeal_evidence(
+            aid, item("E-S9", "One seller document too many here.",
+                      uploader=SELLER, role="SELLER"))
+
+
+def test_a_stranger_must_dispute_before_adding_appeal_evidence(module, c):
+    aid = adjudicated(module, c)
+    stranger_doc = item("E-STR", "A stranger's document about the car.",
+                        uploader=STRANGER_ADDR, role="BUYER")
+    as_(module, STRANGER_ADDR)
+    with pytest.raises(err(module), match="record a dispute first"):
+        c.submit_appeal_evidence(aid, stranger_doc)
+    c.record_dispute(aid, STRANGER_ADDR, json.dumps(["CL-01"]), "")
+    assert c.submit_appeal_evidence(aid, stranger_doc) == "E-STR"
 
 
 def test_run_cap_holds(module, c):
@@ -132,16 +170,18 @@ def test_run_cap_holds(module, c):
     fourth appeal is refused with the cap in the sentence."""
     aid = adjudicated(module, c)
     for n in range(2, 5):
-        as_(module, BUYER_ADDR)
-        acct = f"acct-late-{n}"
+        acct = account(n)
+        as_(module, acct)
         c.record_dispute(aid, acct, json.dumps(["CL-01"]),
                          f"dispute round {n}")
         panel_says(panel_answer())
         c.readjudicate(aid, acct, f"round {n} grounds")
         assert json.loads(c.get_assessment(aid))["runs_count"] == n
-    c.record_dispute(aid, "acct-final", json.dumps(["CL-01"]), "again")
+    final = account(99)
+    as_(module, final)
+    c.record_dispute(aid, final, json.dumps(["CL-01"]), "again")
     with pytest.raises(err(module), match="at most 4 runs"):
-        c.readjudicate(aid, "acct-final", "one more round")
+        c.readjudicate(aid, final, "one more round")
 
 
 def test_a_new_dispute_alone_supports_an_appeal(module, c):

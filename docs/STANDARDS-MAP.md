@@ -208,9 +208,12 @@ operator's intake role rebuts. The defensible, layered claim (ARCHITECTURE
 manifests, intake receipts, attributable disputes, and no-re-roll
 preconditions are what make the S9 answer true, which is why they are
 architecture, not polish. Since the rebuild as a dApp (14 Sep) there is no
-operator to decline service: every party writes from its own wallet, and
-the honest limitation moved with it — the contract's writes are open to any
-wallet (THREAT-MODEL). No pooled funds → S3, S23, S24 largely N/A; recorded as consciously
+operator to decline service: every party writes from its own wallet. That
+first exposed the contract's writes as open to any wallet, and the redeploy
+the same day bound them: every recorded account is the signer, only the
+seller seals, only a recorded party judges or appeals, and intake slots are
+split by side (ARCHITECTURE, "The shape today"; THREAT-MODEL for what
+remains). No pooled funds → S3, S23, S24 largely N/A; recorded as consciously
 out of scope rather than silently skipped.
 
 ### 8. The whole path is reachable in the UI — S40

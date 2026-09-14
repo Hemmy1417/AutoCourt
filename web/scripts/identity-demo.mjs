@@ -1,5 +1,8 @@
 /**
- * The independent identity check, live.
+ * The independent identity check, live, as it ran on the earlier deployment
+ * 0xE26B3C4A…7998. Its seller account is a plain name sent from another
+ * wallet, which the deployment of record refuses; the identity outcomes
+ * there are proven by web/tests/live (CONFIRMED and MISMATCH).
  *
  *   node scripts/identity-demo.mjs <contract>
  *

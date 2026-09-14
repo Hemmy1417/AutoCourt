@@ -17,9 +17,15 @@
 #                    construction, its declared hash recomputed at entry.
 #                    Anchor evidence is fetched by EVERY validator itself at
 #                    entry; no leader-private byte exists anywhere.
-#   APP TESTIMONY    the app authenticates users, extracts text from files,
-#                    and attributes uploads to accounts. Those facts are the
-#                    operator's testimony, made tamper-evident by dual hashes
+#   SIGNED WRITES    every account this contract records is the wallet that
+#                    signed the write: the seller of record, each uploader,
+#                    each disputer, each appellant. Only the seller seals;
+#                    only a recorded party asks for a judgment or an appeal;
+#                    and intake slots are split by side, so no wallet can
+#                    spend the other side's.
+#   PARTY TESTIMONY  each party extracts text from their own files and signs
+#                    it. That text is the party's testimony, made attributable
+#                    by the signature and tamper-evident by dual hashes
 #                    (original file + normalized text + extractor version) in
 #                    an on-chain manifest — detectable, not trustless, and the
 #                    docs say so.
@@ -32,8 +38,10 @@
 #   FLOORS           corroboration is priced in code: a claim supported only
 #                    by its own side's uploads cannot reach VERIFIED, and an
 #                    accusation resting only on the accuser's uploads cannot
-#                    become CLAIM_CONTRADICTED. Every floor keys on the
-#                    adverse ATTRIBUTE, never on an enum name list.
+#                    become CLAIM_CONTRADICTED. Neither side's own uploads
+#                    can turn an independent source into a conflict. Every
+#                    floor keys on the adverse ATTRIBUTE, never on an enum
+#                    name list.
 
 import genlayer as gl
 from genlayer.types import *
@@ -54,6 +62,15 @@ MAX_CLAIMS = 12
 MAX_ITEMS_AT_SUBMISSION = 8
 MAX_NEW_ITEMS_PER_APPEAL = 4
 MAX_EVIDENCE_ITEMS = MAX_ITEMS_AT_SUBMISSION + MAX_NEW_ITEMS_PER_APPEAL
+# Intake is split by side, so no wallet can spend the other side's slots:
+# before sealing the seller of record owns five of the eight and every other
+# wallet shares three; an appeal's four new slots split two and two.
+MAX_SELLER_ITEMS_AT_SUBMISSION = 5
+MAX_OTHER_ITEMS_AT_SUBMISSION = (MAX_ITEMS_AT_SUBMISSION
+                                 - MAX_SELLER_ITEMS_AT_SUBMISSION)
+MAX_SELLER_ITEMS_PER_APPEAL = 2
+MAX_OTHER_ITEMS_PER_APPEAL = (MAX_NEW_ITEMS_PER_APPEAL
+                              - MAX_SELLER_ITEMS_PER_APPEAL)
 PER_ITEM_TEXT_CAP = 6_000        # normalized chars; keeps each write ≤ ~8KB JSON
 TOTAL_JUDGED_TEXT_CAP = MAX_EVIDENCE_ITEMS * PER_ITEM_TEXT_CAP  # 72,000
 MAX_RUNS_PER_ASSESSMENT = 4      # 1 adjudication + 3 appeals
@@ -101,7 +118,7 @@ IDENTITY_STATUSES = ("CONFIRMED", "MISMATCH", "UNDECODABLE",
 MILEAGE_TOLERANCE_BPS = 200
 MILEAGE_TOLERANCE_FLOOR_MI = 100
 
-# ── vocabulary (mirrors packages/shared-types; the app never invents one) ────
+# ── vocabulary (web/lib/present.ts labels it; the app never invents one) ─────
 
 CLAIM_TYPES = ("MILEAGE", "ACCIDENT_HISTORY", "CONDITION",
                "DEFECT_DISCLOSURE", "SERVICE_HISTORY")
@@ -152,7 +169,7 @@ ROLLUP_ORDER = ("POSSIBLE_ODOMETER_ROLLBACK", "MILEAGE_CONFLICT",
                 "INSUFFICIENT_EVIDENCE", "VERIFIED", "PARTIALLY_VERIFIED",
                 "INCONCLUSIVE")
 
-RULESET_VERSION = "autocourt-rules-2"
+RULESET_VERSION = "autocourt-rules-4"
 
 
 # ── deterministic helpers ────────────────────────────────────────────────────
@@ -185,6 +202,30 @@ def _err_text(e) -> str:
         if isinstance(val, str) and val:
             return val
     return str(e)
+
+
+_HOST_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789-.")
+
+
+def _anchor_host(url: str) -> str:
+    """The host an https URL actually addresses, or a refusal.
+
+    The authority ends at the first '/', '?', '#' or '\\' (browsers treat a
+    backslash as a slash). Cutting at '/' alone let
+    'https://evil.example?.allowed.host' pass an allowlist suffix check while
+    the fetch went to evil.example — Verda's smuggling lesson, owed here too
+    (S41). Userinfo is refused outright, and a host may hold only letters,
+    digits, hyphens and dots, so nothing a URL parser might reinterpret can
+    reach the suffix check."""
+    authority = url[len("https://"):]
+    for sep in ("/", "?", "#", "\\"):
+        authority = authority.split(sep, 1)[0]
+    host = authority.split(":", 1)[0].lower()
+    if ("@" in authority or not host or host.startswith(".")
+            or host.endswith(".") or not all(c in _HOST_CHARS for c in host)):
+        raise gl.vm.UserError(
+            f"{ERROR_EXPECTED} anchor url must name a plain host")
+    return host
 
 
 def _addr_str(a) -> str:
@@ -576,7 +617,8 @@ def _derive_claim(claim: dict, findings: list, items_by_id: dict,
     # an INDEPENDENT-supported claim into CONFLICTING_EVIDENCE — a grounded
     # accusation still caps the claim below VERIFIED, and a severe one
     # forces inspection, but the sybil that mints a dispute cannot mint a
-    # conflict.
+    # conflict. The mirror holds too: support resting only on first-party
+    # uploads cannot drag an INDEPENDENT contradiction into a conflict.
     if support and contradict:
         if c_classes == {"FIRST_PARTY"}:
             # An accusation without qualifying corroboration never hides
@@ -590,6 +632,13 @@ def _derive_claim(claim: dict, findings: list, items_by_id: dict,
                 verdict = "PARTIALLY_VERIFIED"
             else:
                 verdict = "CONFLICTING_EVIDENCE"
+        elif s_classes == {"FIRST_PARTY"} and "INDEPENDENT" in c_classes:
+            # The seller's own paperwork, or a wallet that never disputed
+            # the claim, cannot answer a source no party wrote by minting a
+            # conflict: the claim is judged as the contradiction-only branch
+            # judges it.
+            verdict = ("CLAIM_CONTRADICTED" if sufficient
+                       else "INCONCLUSIVE")
         else:
             verdict = "CONFLICTING_EVIDENCE"
     elif contradict:
@@ -858,6 +907,65 @@ class AutoCourtAssessment(gl.contract.Contract):
                 "characters")
         return s
 
+    def _signer_account(self, claimed, what: str) -> str:
+        """The account a write records is the wallet that signed it.
+
+        A claimed account is still accepted, as a cross-check: a client that
+        believes it is one wallet while the extension signs with another is
+        refused in words instead of being recorded under the wrong name. It
+        can never name anyone else."""
+        signer = self._require_account(self._sender()).lower()
+        c = str(claimed if claimed is not None else "").strip().lower()
+        if c and c != signer:
+            raise gl.vm.UserError(
+                f"{ERROR_EXPECTED} {what} must be the wallet that signs this "
+                "transaction")
+        return signer
+
+    def _recorded_parties(self, assessment_id: str, a: dict) -> set:
+        """The seller of record, every disputer, every uploader and every
+        wallet that added an independent source."""
+        parties = {a["seller_account"]}
+        parties |= {d["account"] for d in self._disputes_of(assessment_id)}
+        for it in self._items_of(assessment_id):
+            for key in ("uploader_account", "added_by"):
+                if it.get(key):
+                    parties.add(it[key])
+        return parties
+
+    def _check_side_slots(self, assessment_id: str, a: dict, account: str,
+                          phase: str) -> None:
+        """Intake slots are split by side. Before sealing the seller of record
+        owns MAX_SELLER_ITEMS_AT_SUBMISSION slots and every other wallet
+        shares the rest; each appeal splits its new slots the same way. So a
+        stranger can never spend the seller's slots, and the seller can
+        never crowd out the buyers'."""
+        seller = a["seller_account"]
+        is_seller = account == seller
+        taken = 0
+        for it in self._items_of(assessment_id):
+            if it.get("phase") != phase:
+                continue
+            if phase == "APPEAL" and _as_int(it.get("judged_version"), 0):
+                continue
+            owner = it.get("uploader_account") or it.get("added_by") or ""
+            if (owner == seller) == is_seller:
+                taken += 1
+        if phase == "APPEAL":
+            cap = (MAX_SELLER_ITEMS_PER_APPEAL if is_seller
+                   else MAX_OTHER_ITEMS_PER_APPEAL)
+            when = "per appeal"
+        else:
+            cap = (MAX_SELLER_ITEMS_AT_SUBMISSION if is_seller
+                   else MAX_OTHER_ITEMS_AT_SUBMISSION)
+            when = "before sealing"
+        if taken >= cap:
+            side = ("the seller of record" if is_seller
+                    else "wallets other than the seller")
+            raise gl.vm.UserError(
+                f"{ERROR_EXPECTED} {side} may enter at most {cap} items "
+                f"{when}")
+
     def _store_item(self, assessment_id: str, item: dict) -> None:
         eids = self._eids(assessment_id)
         if item["evidence_id"] in eids:
@@ -971,7 +1079,9 @@ class AutoCourtAssessment(gl.contract.Contract):
             raise gl.vm.UserError(
                 f"{ERROR_EXPECTED} VIN must be {VIN_LEN} characters from the "
                 "VIN alphabet (no I, O, Q)")
-        seller_account = self._require_account(vehicle.get("seller_account"))
+        # The seller of record is the wallet that opens the record.
+        seller_account = self._signer_account(vehicle.get("seller_account"),
+                                              "seller_account")
         make = str(vehicle.get("make", ""))[:MAX_FIELD_CHARS]
         model = str(vehicle.get("model", ""))[:MAX_FIELD_CHARS]
         year = _as_int(vehicle.get("year"), 0)
@@ -1048,6 +1158,8 @@ class AutoCourtAssessment(gl.contract.Contract):
                 f"{ERROR_EXPECTED} at most {MAX_ITEMS_AT_SUBMISSION} items "
                 "before sealing")
         item = self._build_uploaded_item(a, item_json, phase="SUBMISSION")
+        self._check_side_slots(assessment_id, a, item["uploader_account"],
+                               "SUBMISSION")
         self._store_item(assessment_id, item)
         return item["evidence_id"]
 
@@ -1055,11 +1167,16 @@ class AutoCourtAssessment(gl.contract.Contract):
                              phase: str) -> dict:
         common = self._clean_item_common(item_json)
         it = json.loads(item_json)
-        uploader = self._require_account(it.get("uploader_account"))
-        role = str(it.get("uploader_role", "")).strip().upper()
-        if role not in ("SELLER", "BUYER"):
+        uploader = self._signer_account(it.get("uploader_account"),
+                                        "uploader_account")
+        # The role is a fact about the signer, not a declaration: the seller
+        # of record uploads as SELLER and every other wallet as BUYER.
+        expected_role = "SELLER" if uploader == a["seller_account"] else "BUYER"
+        role = str(it.get("uploader_role", "")).strip().upper() or expected_role
+        if role != expected_role:
             raise gl.vm.UserError(
-                f"{ERROR_EXPECTED} uploader_role must be SELLER or BUYER")
+                f"{ERROR_EXPECTED} uploader_role must be SELLER for the seller "
+                "of record and BUYER for any other wallet")
         file_hash = str(it.get("file_sha256", "")).strip().lower()
         text_hash = str(it.get("text_sha256", "")).strip().lower()
         if not _is_hex_hash(file_hash) or not _is_hex_hash(text_hash):
@@ -1167,9 +1284,10 @@ class AutoCourtAssessment(gl.contract.Contract):
                        claim_ids_json: str, note: str) -> str:
         """A buyer's disputed-claim flags — the recorded opposing stake the
         corroboration ladder reads. A dispute is a claim, not a fact, and
-        the panel is told exactly that."""
+        the panel is told exactly that. It is recorded in the name of the
+        wallet that signs it, and of no one else."""
         a = self._assessment(assessment_id)
-        acct = self._require_account(account)
+        acct = self._signer_account(account, "the disputing account")
         if acct == a["seller_account"]:
             raise gl.vm.UserError(
                 f"{ERROR_EXPECTED} the seller of record cannot dispute their "
@@ -1203,13 +1321,17 @@ class AutoCourtAssessment(gl.contract.Contract):
     @gl.public.write
     def submit_assessment(self, assessment_id: str,
                           manifest_root: str) -> str:
-        """Seals the packet. The root is recomputed over the items this
-        contract already stores; the caller's copy is a cross-check, not a
-        source of truth."""
+        """Seals the packet. Only the seller of record closes intake. The root
+        is recomputed over the items this contract already stores; the
+        caller's copy is a cross-check, not a source of truth."""
         a = self._assessment(assessment_id)
         if a["state"] != "OPEN":
             raise gl.vm.UserError(
                 f"{ERROR_EXPECTED} only an OPEN assessment can be sealed")
+        if self._sender().lower() != a["seller_account"]:
+            raise gl.vm.UserError(
+                f"{ERROR_EXPECTED} only the seller of record can seal the "
+                "packet")
         items = self._items_of(assessment_id)
         if not items:
             raise gl.vm.UserError(
@@ -1242,6 +1364,11 @@ class AutoCourtAssessment(gl.contract.Contract):
         if a["state"] != "ADJUDICATED":
             raise gl.vm.UserError(
                 f"{ERROR_EXPECTED} appeal evidence needs a standing verdict")
+        if self._sender().lower() not in self._recorded_parties(assessment_id,
+                                                                  a):
+            raise gl.vm.UserError(
+                f"{ERROR_EXPECTED} only a recorded party may add appeal "
+                "evidence; record a dispute first")
         appeal_items = [it for it in self._items_of(assessment_id)
                         if it.get("phase") == "APPEAL"
                         and it.get("judged_version", 0) == 0]
@@ -1254,6 +1381,8 @@ class AutoCourtAssessment(gl.contract.Contract):
                 f"{ERROR_EXPECTED} the record holds at most "
                 f"{MAX_EVIDENCE_ITEMS} items")
         item = self._build_uploaded_item(a, item_json, phase="APPEAL")
+        self._check_side_slots(assessment_id, a, item["uploader_account"],
+                               "APPEAL")
         item["judged_version"] = 0
         self._store_item(assessment_id, item)
         return item["evidence_id"]
@@ -1288,12 +1417,16 @@ class AutoCourtAssessment(gl.contract.Contract):
             raise gl.vm.UserError(
                 f"{ERROR_EXPECTED} expected_sha256 is required as 64 hex "
                 "characters")
-        host = url[len("https://"):].split("/", 1)[0].split(":", 1)[0].lower()
+        host = _anchor_host(url)
         allowed = [str(h) for h in self.anchor_allowlist]
         if not any(host == h or host.endswith("." + h) for h in allowed):
             raise gl.vm.UserError(
                 f"{ERROR_EXPECTED} anchor host is not on the deployment "
                 "allowlist")
+        # The wallet adding the source is recorded, and the source spends a
+        # slot on that wallet's side — checked before any validator fetches.
+        adder = self._require_account(self._sender()).lower()
+        self._check_side_slots(assessment_id, a, adder, "SUBMISSION")
 
         def fetch() -> dict:
             try:
@@ -1345,8 +1478,11 @@ class AutoCourtAssessment(gl.contract.Contract):
             **common,
             "lane": "ANCHOR",
             "phase": "SUBMISSION",
+            # No party authored an independent source, so it has no uploader;
+            # the wallet that asked for it is recorded separately.
             "uploader_account": "",
             "uploader_role": "",
+            "added_by": adder,
             "url": url,
             "file_sha256": expected,
             "text_sha256": _sha256_hex(text),
@@ -1372,6 +1508,11 @@ class AutoCourtAssessment(gl.contract.Contract):
         if a["state"] not in ("SEALED", "ADJUDICATED"):
             raise gl.vm.UserError(
                 f"{ERROR_EXPECTED} adjudication needs a sealed packet")
+        if self._sender().lower() not in self._recorded_parties(assessment_id,
+                                                                  a):
+            raise gl.vm.UserError(
+                f"{ERROR_EXPECTED} only a recorded party may request "
+                "adjudication")
         if int(a["runs_count"]) >= MAX_RUNS_PER_ASSESSMENT:
             raise gl.vm.UserError(
                 f"{ERROR_EXPECTED} the record holds at most "
@@ -1400,12 +1541,8 @@ class AutoCourtAssessment(gl.contract.Contract):
             raise gl.vm.UserError(
                 f"{ERROR_EXPECTED} the record holds at most "
                 f"{MAX_RUNS_PER_ASSESSMENT} runs")
-        acct = self._require_account(appellant_account)
-        recorded = {a["seller_account"]} | \
-            {d["account"] for d in self._disputes_of(assessment_id)} | \
-            {it.get("uploader_account") for it in
-             self._items_of(assessment_id) if it.get("uploader_account")}
-        if acct not in recorded:
+        acct = self._signer_account(appellant_account, "the appellant")
+        if acct not in self._recorded_parties(assessment_id, a):
             raise gl.vm.UserError(
                 f"{ERROR_EXPECTED} only a recorded party may appeal")
         grounds = str(grounds).strip()
@@ -1840,7 +1977,7 @@ Respond ONLY with JSON:
                         "declared_class", "declared_label",
                         "uploader_account", "uploader_role", "file_sha256",
                         "text_sha256", "extractor_version",
-                        "uploader_signature", "judged_version")}
+                        "uploader_signature", "judged_version", "added_by")}
                       for it in items]
         a["disputes"] = self._disputes_of(assessment_id)
         return _canonical(a)
@@ -1915,6 +2052,11 @@ Respond ONLY with JSON:
             "max_claims": MAX_CLAIMS,
             "max_items_at_submission": MAX_ITEMS_AT_SUBMISSION,
             "max_new_items_per_appeal": MAX_NEW_ITEMS_PER_APPEAL,
+            "max_seller_items_at_submission": MAX_SELLER_ITEMS_AT_SUBMISSION,
+            "max_other_items_at_submission": MAX_OTHER_ITEMS_AT_SUBMISSION,
+            "max_seller_items_per_appeal": MAX_SELLER_ITEMS_PER_APPEAL,
+            "max_other_items_per_appeal": MAX_OTHER_ITEMS_PER_APPEAL,
+            "writes_bound_to_signer": True,
             "max_evidence_items": MAX_EVIDENCE_ITEMS,
             "per_item_text_cap": PER_ITEM_TEXT_CAP,
             "total_judged_text_cap": TOTAL_JUDGED_TEXT_CAP,

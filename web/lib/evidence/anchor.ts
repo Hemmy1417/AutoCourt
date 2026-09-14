@@ -15,7 +15,7 @@
  * registry extract, whose readings sit in aligned columns, entered
  * SOURCE_UNAVAILABLE although every validator reached it and agreed.
  *
- * For a plain-text page, which is what the allowlisted host serves,
+ * For a plain-text or JSON page, which is what the allowlisted hosts serve,
  * innerText is the text itself, so this is exact. An HTML page's innerText
  * depends on its layout and cannot be reproduced outside a browser; there
  * the hash is a best effort, and a mismatch is recorded, never judged.
@@ -62,6 +62,16 @@ export function renderedText(text: string): string {
     .join("\n")
     .replace(/\n{2,}/g, "\n\n");
   return codePoints(normalized, ANCHOR_FETCH_CAP);
+}
+
+/**
+ * NHTSA's public recall list for one vehicle, as JSON from the US Department
+ * of Transportation. Neither party writes it, and a browser renders JSON as
+ * plain text, so the fingerprint above is exact for it too.
+ */
+export function nhtsaRecallsUrl(v: { make: string; model: string; year: number }): string {
+  const q = (s: string) => encodeURIComponent(s.trim());
+  return `https://api.nhtsa.gov/recalls/recallsByVehicle?make=${q(v.make)}&model=${q(v.model)}&modelYear=${v.year}`;
 }
 
 /** What the contract stores for an entered source: `" ".join(body.split())[:PER_ITEM_TEXT_CAP]`. */

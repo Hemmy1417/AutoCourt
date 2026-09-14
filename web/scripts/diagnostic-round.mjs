@@ -1,4 +1,7 @@
 /**
+ * (Written for the disposable pre-canonical deploy, before writes were bound
+ * to their signer; kept as the record of that pass.)
+ *
  * The validator-diversity diagnostic pass (STANDARDS-MAP §5): one full
  * adjudication round on the DISPOSABLE deploy, before anything canonical.
  * StudioNet validators span model families; this measures whether the

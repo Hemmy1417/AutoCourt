@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 
-import type { Act } from "../../../lib/acts";
+import { sideSlots, type Act } from "../../../lib/acts";
 import { attestationMessage } from "../../../lib/attest";
 import { sameAddress } from "../../../lib/chain";
 import { CONTRACT_ADDRESS } from "../../../lib/config";
@@ -36,6 +36,14 @@ interface Prepared {
 
 const EMPTY_ROW = { docDate: "", odometerReading: "", odometerUnit: "MILES", diagnosticCode: "", sourceField: "" };
 type Row = typeof EMPTY_ROW;
+
+/** Intake is split by side, so a person is told how much of theirs is left. */
+function slotsLine(s: ReturnType<typeof sideSlots>): string {
+  const when = s.appeal ? "for this appeal" : "before sealing";
+  return s.isSeller
+    ? `As the seller, you have ${s.left} of your ${s.cap} intake slots left ${when}.`
+    : `Every wallet other than the seller shares ${s.cap} intake slots ${when}, and ${s.left} ${s.left === 1 ? "is" : "are"} left.`;
+}
 
 export function AddEvidence({
   record,
@@ -225,6 +233,9 @@ export function AddEvidence({
         </p>
       ) : (
         <>
+          <p className="fine" style={{ marginTop: 8 }}>
+            {slotsLine(sideSlots(record, config, account))}
+          </p>
           <div className="form-grid" style={{ marginTop: 14 }}>
             <div className="field" style={{ marginBottom: 8 }}>
               <label htmlFor="upload-file">File</label>

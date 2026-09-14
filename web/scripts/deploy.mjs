@@ -23,11 +23,12 @@ const SOURCE = fileURLToPath(new URL("../../contracts/autocourt_assessment.py", 
 const KEYS_PATH = fileURLToPath(new URL("../../.data/keys.json", import.meta.url));
 const FEE_FLOOR = 10n ** 15n;
 
-// The demo deployment's anchor allowlist: commit-pinned GitHub raw is the
-// proven independent evidence host on this network; a production
-// deployment would list actual registries. Visible in get_config, stated
-// in the README.
-const ANCHOR_ALLOWLIST = ["raw.githubusercontent.com"];
+// The anchor allowlist, visible in get_config and stated in the README.
+// api.nhtsa.gov is a real public authority: the US government's vehicle
+// safety recall records, which the render probe (docs/PROBE-REPORT.md)
+// showed every validator reaching and agreeing on. Commit-pinned GitHub raw
+// stays for documents no public API publishes, standing in for a registry.
+const ANCHOR_ALLOWLIST = ["api.nhtsa.gov", "raw.githubusercontent.com"];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const sha = (s) => createHash("sha256").update(s, "utf-8").digest("hex");
