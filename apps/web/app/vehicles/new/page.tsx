@@ -3,16 +3,9 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { CLAIM_TYPES } from "../../../lib/present";
 import { api } from "../../components/api";
 import { ErrorNotice, Spinner } from "../../components/bits";
-
-const CLAIM_TYPES = [
-  { value: "MILEAGE", label: "Mileage", ph: "87,432 miles" },
-  { value: "ACCIDENT_HISTORY", label: "Accident history", ph: "no recorded accidents" },
-  { value: "CONDITION", label: "Condition", ph: "excellent; no rust; original paint" },
-  { value: "DEFECT_DISCLOSURE", label: "Defect disclosure", ph: "minor oil seep at valve cover, disclosed" },
-  { value: "SERVICE_HISTORY", label: "Service history", ph: "full history, main dealer" },
-];
 
 interface ClaimDraft {
   type: string;
@@ -65,9 +58,9 @@ export default function NewAssessment() {
     <section className="section" style={{ maxWidth: 720, margin: "0 auto" }}>
       <h2>List a vehicle</h2>
       <p className="muted" style={{ marginTop: 6, marginBottom: 24 }}>
-        The VIN is code-validated. Each claim&apos;s declared value is YOUR
-        assertion — the panel judges it against the record, and unbacked
-        claims land as insufficient, not verified.
+        The VIN is checked in code. Each claim&apos;s declared value is{" "}
+        <em>your</em> assertion: the panel judges it against the record, and
+        a claim nothing backs is marked insufficient, never verified.
       </p>
 
       <div className="card" style={{ marginBottom: 18 }}>
@@ -80,30 +73,33 @@ export default function NewAssessment() {
             maxLength={17}
             value={vin}
             onChange={(e) => setVin(e.target.value.toUpperCase())}
-            placeholder="1M8GDM9AXKP042788"
+            placeholder="1HGCM82633A004352"
           />
           <span className="hint">
-            17 characters, no I / O / Q. A failed check digit is recorded as
-            a fact, not a rejection — genuine imported VINs can fail it.
+            17 characters, without the letters I, O or Q. A failed check digit
+            is recorded as a fact, not a rejection: genuine imported VINs can
+            fail it.
           </span>
         </div>
-        <div className="row" style={{ alignItems: "start" }}>
+        <div className="row form-row" style={{ alignItems: "start" }}>
           <div className="field" style={{ flex: 2 }}>
             <label>Make</label>
             <input
               type="text"
+              maxLength={60}
               value={make}
               onChange={(e) => setMake(e.target.value)}
-              placeholder="Meridian"
+              placeholder="Honda"
             />
           </div>
           <div className="field" style={{ flex: 2 }}>
             <label>Model</label>
             <input
               type="text"
+              maxLength={60}
               value={model}
               onChange={(e) => setModel(e.target.value)}
-              placeholder="GT Wagon"
+              placeholder="Accord"
             />
           </div>
           <div className="field" style={{ flex: 1 }}>
@@ -112,7 +108,7 @@ export default function NewAssessment() {
               type="number"
               value={year}
               onChange={(e) => setYear(e.target.value)}
-              placeholder="2019"
+              placeholder="2003"
             />
           </div>
         </div>
@@ -120,7 +116,12 @@ export default function NewAssessment() {
 
       <div className="card">
         <div className="card-title">
-          <h3>Claims ({claims.length}/12)</h3>
+          <h3>
+            Claims{" "}
+            <span className="muted" style={{ fontSize: 15, fontWeight: 500 }}>
+              {claims.length} of 12
+            </span>
+          </h3>
           <button
             className="btn btn-ghost"
             disabled={claims.length >= 12}
@@ -158,12 +159,15 @@ export default function NewAssessment() {
                     maxLength={160}
                     value={c.declaredValue}
                     onChange={(e) => setClaim(i, { declaredValue: e.target.value })}
-                    placeholder={spec?.ph}
+                    placeholder={spec?.example}
+                    aria-label={`${spec?.label ?? "Claim"}: declared value`}
                   />
                 </div>
                 <button
                   className="btn btn-quiet"
                   disabled={claims.length <= 1}
+                  aria-label="Remove this claim"
+                  title="Remove this claim"
                   onClick={() => setClaims((rows) => rows.filter((_, j) => j !== i))}
                 >
                   ✕

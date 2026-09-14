@@ -46,7 +46,7 @@ export async function POST(
     if (role !== "SELLER")
       throw forbidden("only the seller submits the assessment");
     if (checked.state !== "DRAFT")
-      throw conflict(`already ${checked.state}`);
+      throw conflict("this assessment has already been submitted");
 
     // THE PACKET IS READ UNDER THE CLAIM, not before it. Read before, a
     // double click queued two whole job chains, whose duplicate writes the
@@ -89,7 +89,7 @@ async function queueSubmission(
   if (items.length === 0)
     throw badRequest("add at least one evidence item before submitting");
   if (items.length > 8)
-    throw badRequest("at most 8 items at submission (the contract's cap)");
+    throw badRequest("at most 8 items can be submitted at once (the contract's limit)");
 
   // An anchor is already on the chain — the contract fetched and
   // hashed it itself. It must never be re-sent through the uploaded

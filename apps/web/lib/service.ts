@@ -17,6 +17,7 @@ import {
 } from "@autocourt/evidence";
 
 import { badRequest, conflict, forbidden, notFound } from "./errors.js";
+import { formatBytes } from "./present.js";
 
 /** The client, or a transaction inside it: helpers that write take either. */
 export type Db = Pick<
@@ -118,7 +119,7 @@ export async function intakeEvidence(opts: {
 }) {
   if (opts.bytes.length === 0) throw badRequest("empty file");
   if (opts.bytes.length > MAX_UPLOAD_BYTES)
-    throw badRequest(`file exceeds ${MAX_UPLOAD_BYTES} bytes`);
+    throw badRequest(`files can be at most ${formatBytes(MAX_UPLOAD_BYTES)}`);
 
   const fileSha256 = await storage.put(opts.bytes);
   const extraction = await extractEvidence(opts.bytes);

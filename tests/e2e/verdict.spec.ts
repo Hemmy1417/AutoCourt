@@ -134,7 +134,7 @@ test("the verdict screens render a real on-chain adjudication", async ({
   // ── the assessment page carries the independent identity result ──────
   await page.goto(`/assessments/${assessmentId}`);
   await expect(page.getByText(/Independent identity check/i)).toBeVisible();
-  await expect(page.getByText(/2003 HONDA Accord/)).toBeVisible();
+  await expect(page.getByText(/2003 Honda Accord/).first()).toBeVisible();
   await expect(
     page.getByText(/by every validator itself, before this record existed/i),
   ).toBeVisible();
@@ -145,7 +145,7 @@ test("the verdict screens render a real on-chain adjudication", async ({
 
   // The standing verdict names its run AND the total, so a superseded
   // verdict can never be mistaken for the standing one.
-  await expect(page.getByText(/run 2 of 2/i)).toBeVisible();
+  await expect(page.getByText(/run 2 of 2/i).first()).toBeVisible();
 
   // Each claim carries a verdict derived in code, with its confidence
   // labelled as derived rather than asserted.
@@ -174,7 +174,7 @@ test("the verdict screens render a real on-chain adjudication", async ({
     page.getByText(/Straight from the contract's manifest/i),
   ).toBeVisible();
   // The arc's three items are in the judged manifest, with both hashes.
-  await expect(page.getByText(/Manifest v/).first()).toBeVisible();
+  await expect(page.getByText(/Sealed manifest/).first()).toBeVisible();
   await expect(page.getByText(/extractor-1\.0\.0/).first()).toBeVisible();
 
   // ── the appeal gate: available, or explained ─────────────────────────

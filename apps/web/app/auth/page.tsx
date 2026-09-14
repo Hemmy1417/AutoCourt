@@ -91,23 +91,23 @@ function AuthInner() {
     setBusy(true);
     setError(null);
     try {
-      setStep("asking your wallet for an account…");
+      setStep("Asking your wallet for an account…");
       const accounts = (await provider.request({
         method: "eth_requestAccounts",
       })) as string[];
       const address = accounts?.[0];
-      if (!address) throw new Error("no account returned by the wallet");
-      setStep("issuing a sign-in nonce…");
+      if (!address) throw new Error("Your wallet did not share an account.");
+      setStep("Preparing your sign-in message…");
       const { nonce, message } = await api<{ nonce: string; message: string }>(
         "/api/auth/nonce",
         { method: "POST", body: JSON.stringify({ address }) },
       );
-      setStep("waiting for your signature…");
+      setStep("Waiting for your signature in the wallet…");
       const signature = (await provider.request({
         method: "personal_sign",
         params: [message, address],
       })) as string;
-      setStep("verifying…");
+      setStep("Verifying your signature…");
       await api("/api/auth/verify", {
         method: "POST",
         body: JSON.stringify({ address, nonce, signature, displayName }),
@@ -145,8 +145,8 @@ function AuthInner() {
         <ErrorNotice error={error} />
         {scanned && wallets.length === 0 ? (
           <div className="notice notice-warn" style={{ marginTop: 12 }}>
-            No wallet extension detected. Install MetaMask (or any
-            EIP-1193 wallet), then reload this page.
+            No wallet extension found. Install MetaMask or another browser
+            wallet, then reload this page.
           </div>
         ) : wallets.length > 1 ? (
           <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
@@ -196,10 +196,10 @@ function AuthInner() {
           </p>
         ) : null}
         <p className="muted" style={{ fontSize: 12, marginTop: 14 }}>
-          Wallets are self-created, and AutoCourt says so plainly: what
-          makes a second wallet worthless is the contract — items from one
-          account never corroborate each other, and VERIFIED needs an
-          independent anchor no wallet can mint.
+          Anyone can create a wallet, and AutoCourt says so plainly. What makes
+          a second wallet worthless is the contract: evidence from one account
+          never corroborates itself, and a verified claim needs an independent
+          source that no wallet can create.
         </p>
       </div>
     </section>

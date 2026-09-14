@@ -123,6 +123,15 @@ describe("processing and failure states", () => {
     );
   });
 
+  it("a packet that failed to seal cannot be sent to the panel, and says why", () => {
+    // Offering it anyway queues an adjudication the contract can only
+    // refuse — and the refusal would read as the panel's failure.
+    const a = act({ state: "SUBMITTED", sealFailed: true }, "adjudicate");
+    expect(a.available).toBe(false);
+    expect(a.reason).toMatch(/could not be sealed/);
+    expect(act({ state: "SUBMITTED" }, "adjudicate").available).toBe(true);
+  });
+
   it("retry appears exactly on FAILED", () => {
     expect(act({ state: "FAILED" }, "retry").available).toBe(true);
     expect(act({}, "retry").available).toBe(false);

@@ -6,6 +6,7 @@ import {
   errorResponse,
   tooMany,
 } from "../../../../../lib/errors.js";
+import { statePhrase } from "../../../../../lib/present.js";
 import { allowBoth } from "../../../../../lib/ratelimit.js";
 import {
   audit,
@@ -30,7 +31,7 @@ export async function POST(
       throw conflict(
         assessment.state === "PROCESSING"
           ? "an adjudication is already in flight"
-          : `adjudication needs a submitted packet (state: ${assessment.state})`,
+          : `adjudication needs a submitted packet, and this record is ${statePhrase(assessment.state)}`,
       );
     // A double click, or two open tabs, used to put two adjudications on
     // the chain: both requests passed the check above before either wrote

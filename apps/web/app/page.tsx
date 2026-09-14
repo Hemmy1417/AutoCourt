@@ -11,7 +11,7 @@ export default function Landing() {
         <div style={{ maxWidth: 720 }}>
           <span className="chip chip-signal" style={{ marginBottom: 18 }}>
             <span className="dot" />
-            used-vehicle claims, adjudicated
+            Used-vehicle claims, adjudicated
           </span>
           <h1 style={{ marginTop: 14 }}>
             Buy the car,
@@ -44,7 +44,7 @@ export default function Landing() {
             },
             {
               t: "Floors, in code",
-              d: "A claim backed only by the seller's own paperwork can't reach VERIFIED. An accusation resting only on the accuser's uploads can't become CONTRADICTED. The floors are code, not policy.",
+              d: "A claim backed only by the seller's own paperwork can never be marked verified, and an accusation resting only on the accuser's uploads can never mark it contradicted. The floors are code, not policy.",
             },
             {
               t: "Honest outcomes",

@@ -19,6 +19,8 @@ export interface ActsInput {
   /** Anchors whose every-validator fetch has not landed yet. */
   pendingAnchorCount: number; // recorded after the latest success run
   hasOnChainId: boolean;
+  /** A submission step (create, evidence, seal) failed for good. */
+  sealFailed?: boolean;
 }
 
 export interface Act {
@@ -112,25 +114,35 @@ export function actsFor(input: ActsInput): Act[] {
     ...(role !== "SELLER"
       ? { reason: "only the seller submits the assessment" }
       : state !== "DRAFT"
-        ? { reason: `already ${state.toLowerCase()}` }
+        ? { reason: "this assessment has already been submitted" }
         : evidenceCount === 0
           ? { reason: "add at least one evidence item first" }
           : unconsentedCount > 0
             ? {
-                reason: `${unconsentedCount} item(s) still need the publicity consent`,
+                reason:
+                  unconsentedCount === 1
+                    ? "1 item still needs the publicity consent"
+                    : `${unconsentedCount} items still need the publicity consent`,
               }
             : pendingAnchorCount > 0
               ? {
-                  reason: `${pendingAnchorCount} independent source(s) still entering the record — validators must agree on the bytes they fetched before the packet can be sealed`,
+                  reason: `${
+                    pendingAnchorCount === 1
+                      ? "an independent source is"
+                      : `${pendingAnchorCount} independent sources are`
+                  } still entering the record — validators must agree on the bytes they fetched before the packet can be sealed`,
                 }
               : {}),
   });
 
+  const sealFailed = state === "SUBMITTED" && Boolean(input.sealFailed);
   acts.push({
     id: "adjudicate",
-    label: "Run the panel",
-    available: state === "SUBMITTED",
-    ...(state === "SUBMITTED"
+    label: "Request adjudication",
+    available: state === "SUBMITTED" && !sealFailed,
+    ...(sealFailed
+      ? { reason: "the packet could not be sealed, so there is nothing for the panel to judge" }
+      : state === "SUBMITTED"
       ? {}
       : state === "PROCESSING"
         ? { reason: "an adjudication is already in flight" }
@@ -138,7 +150,7 @@ export function actsFor(input: ActsInput): Act[] {
           ? { reason: "submit the packet first" }
           : state === "ADJUDICATED"
             ? { reason: "a verdict already stands; a re-judgment is an appeal" }
-            : { reason: "retry the failed run instead" }),
+            : { reason: "retry the failed attempt instead" }),
   });
 
   const appealOk =
@@ -160,7 +172,7 @@ export function actsFor(input: ActsInput): Act[] {
 
   acts.push({
     id: "retry",
-    label: "Retry the failed run",
+    label: "Retry adjudication",
     available: state === "FAILED",
     ...(state !== "FAILED" ? { reason: "nothing failed" } : {}),
   });

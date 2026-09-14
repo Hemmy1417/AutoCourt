@@ -4,13 +4,23 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { evidenceClassLabel, plural, statePhrase } from "../../../../lib/present";
 import { api } from "../../../components/api";
-import { ErrorNotice, Spinner } from "../../../components/bits";
+import {
+  Chip,
+  Empty,
+  ErrorNotice,
+  IdTag,
+  Loading,
+  PageError,
+  Spinner,
+} from "../../../components/bits";
 
 interface Detail {
   id: string;
   state: string;
   myRole: "SELLER" | "BUYER";
+  maxRuns: number | null;
   evidenceItems: {
     id: string;
     evidenceId: string;
@@ -36,25 +46,23 @@ export default function AppealScreen() {
     api<Detail>(`/api/assessments/${id}`).then(setDetail).catch(setError);
   }, [id]);
 
-  if (error && !detail) return <ErrorNotice error={error} />;
-  if (!detail)
-    return (
-      <div className="row" style={{ justifyContent: "center", padding: 60 }}>
-        <Spinner />
-      </div>
-    );
+  if (error && !detail) return <PageError error={error} />;
+  if (!detail) return <Loading />;
 
   const successRuns = detail.runs.filter((r) => r.status === "SUCCESS").length;
-  const runsLeft = 4 - successRuns;
+  // The limit is the contract's. When it could not be read, say nothing
+  // about it rather than print a number the chain might not honour.
+  const runsLeft =
+    detail.maxRuns === null ? null : Math.max(0, detail.maxRuns - successRuns);
   const newItems = detail.evidenceItems.filter((i) => !i.onChainTxHash);
 
   if (detail.state !== "ADJUDICATED") {
     return (
-      <section className="section">
-        <div className="empty">
-          An appeal needs a standing verdict. This assessment is{" "}
-          {detail.state.toLowerCase()}.
-        </div>
+      <section className="section" style={{ maxWidth: 680, margin: "0 auto" }}>
+        <Empty>
+          An appeal needs a standing verdict, and this assessment is{" "}
+          {statePhrase(detail.state)}.
+        </Empty>
       </section>
     );
   }
@@ -62,46 +70,56 @@ export default function AppealScreen() {
   return (
     <section className="section" style={{ maxWidth: 680, margin: "0 auto" }}>
       <h2>Appeal the verdict</h2>
-      <p className="muted" style={{ marginTop: 6 }}>
-        An appeal re-judges the RECORDED bytes — exactly what the first
-        panel read, straight from the contract&apos;s own storage — plus
-        anything new, clearly tagged as arriving after the outcome was
-        known. Prior runs stay on the record. {runsLeft} run
-        {runsLeft === 1 ? "" : "s"} left of 4.
+      <p className="muted" style={{ marginTop: 8 }}>
+        An appeal re-judges the <em>recorded</em> evidence — exactly what the
+        first panel read, straight from the contract&apos;s own storage — plus
+        anything new, clearly marked as arriving after the outcome was known.
+        Earlier runs stay on the record.
       </p>
+      {runsLeft !== null ? (
+        <p className="fine" style={{ marginTop: 8 }}>
+          {runsLeft === 0
+            ? `This record already holds the ${detail.maxRuns} runs the contract allows.`
+            : `${plural(runsLeft, "run")} left of the ${detail.maxRuns} the contract allows.`}
+        </p>
+      ) : null}
 
       <div className="card" style={{ marginTop: 20 }}>
         <div className="field">
-          <label>Grounds (on the record, shown to the panel as advocacy)</label>
+          <label htmlFor="grounds">Grounds for the appeal</label>
           <textarea
+            id="grounds"
             rows={4}
             maxLength={1200}
             value={grounds}
             onChange={(e) => setGrounds(e.target.value)}
-            placeholder="an independent inspection found frame damage the history record missed"
+            placeholder="An independent inspection found frame damage the history record missed."
           />
-          <span className="hint">{grounds.length}/1200</span>
+          <span className="hint spread">
+            <span>On the record, and shown to the panel as advocacy.</span>
+            <span>{grounds.length.toLocaleString("en-US")} / 1,200</span>
+          </span>
         </div>
 
-        <h3 style={{ margin: "10px 0" }}>New evidence to enter</h3>
+        <h3 style={{ margin: "14px 0 10px" }}>New evidence to enter</h3>
         {newItems.length === 0 ? (
           <p className="muted small">
-            Nothing new uploaded yet.{" "}
-            <Link
-              href={`/assessments/${id}`}
-              style={{ color: "var(--signal-deep)", fontWeight: 700 }}
-            >
-              Add appeal evidence on the dossier
-            </Link>{" "}
-            — or record a new dispute there; either supports an appeal.
+            Nothing new has been uploaded yet.{" "}
+            <Link href={`/assessments/${id}`} className="link">
+              Add appeal evidence to the record
+            </Link>
+            , or record a new dispute there; either supports an appeal.
           </p>
         ) : (
-          <div className="stack" style={{ gap: 8 }}>
+          <div className="stack" style={{ gap: 10 }}>
             {newItems.map((i) => (
-              <label key={i.id} className="row small" style={{ cursor: "pointer" }}>
+              <label
+                key={i.id}
+                className="row small"
+                style={{ cursor: i.consentedAt ? "pointer" : "default", gap: 10 }}
+              >
                 <input
                   type="checkbox"
-                  style={{ width: "auto" }}
                   disabled={!i.consentedAt}
                   checked={picked.includes(i.id)}
                   onChange={(e) =>
@@ -112,14 +130,9 @@ export default function AppealScreen() {
                     )
                   }
                 />
-                <span className="tag">{i.evidenceId}</span>
-                {i.declaredLabel || i.declaredClass.replaceAll("_", " ")}
-                {!i.consentedAt ? (
-                  <span className="chip chip-warn">
-                    <span className="dot" />
-                    needs consent first
-                  </span>
-                ) : null}
+                <IdTag>{i.evidenceId}</IdTag>
+                <span>{i.declaredLabel || evidenceClassLabel(i.declaredClass)}</span>
+                {!i.consentedAt ? <Chip tone="warn">Needs consent first</Chip> : null}
               </label>
             ))}
           </div>
@@ -128,8 +141,8 @@ export default function AppealScreen() {
         <ErrorNotice error={error} />
         <button
           className="btn btn-primary"
-          style={{ marginTop: 16 }}
-          disabled={busy || !grounds.trim() || runsLeft <= 0}
+          style={{ marginTop: 18 }}
+          disabled={busy || !grounds.trim() || runsLeft === 0}
           onClick={async () => {
             setBusy(true);
             setError(null);

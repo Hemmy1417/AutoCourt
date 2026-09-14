@@ -15,6 +15,7 @@ import {
   evidenceWritePayload,
   type ItemForPacket,
 } from "../../../../../lib/packet.js";
+import { statePhrase } from "../../../../../lib/present.js";
 import { allowBoth } from "../../../../../lib/ratelimit.js";
 import {
   audit,
@@ -39,7 +40,7 @@ export async function POST(
     const { id } = await ctx.params;
     const { assessment } = await requireAccess(id, user.id);
     if (assessment.state !== "ADJUDICATED")
-      throw conflict(`an appeal needs a standing verdict (state: ${assessment.state})`);
+      throw conflict(`an appeal needs a standing verdict, and this record is ${statePhrase(assessment.state)}`);
     // The runs cap belongs to the contract, and the contract enforces it.
     // Checking here too is not redundant: without it the appeal is
     // accepted, evidence is written on chain, and only the readjudicate
@@ -69,7 +70,7 @@ export async function POST(
       (i) => newItemRowIds.includes(i.id) && !i.onChainTxHash,
     );
     if (newItems.length !== newItemRowIds.length)
-      throw badRequest("newEvidenceIds must be un-submitted items on this assessment");
+      throw badRequest("an appeal can only include new, unsubmitted items from this record");
     const unconsented = newItems.filter((i) => !i.consentedAt);
     if (unconsented.length > 0)
       throw badRequest("every appeal item needs an explicit publicity consent", {

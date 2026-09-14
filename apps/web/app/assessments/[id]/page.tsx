@@ -6,31 +6,40 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { actsFor, type Act } from "../../../lib/acts";
 import { attestationMessage } from "../../../lib/attest";
-import { api, ApiFailure, EXPLORER, shortHash } from "../../components/api";
 import {
+  attemptLabel,
+  claimTypeLabel,
+  EVIDENCE_CLASSES,
+  evidenceClassLabel,
+  failureText,
+  formatDocDate,
+  formatOdometer,
+  identityLabel,
+  plural,
+  recordNumber,
+  registryName,
+  sentence,
+  vehicleTitle,
+} from "../../../lib/present";
+import { api, EXPLORER, shortHash } from "../../components/api";
+import {
+  Chip,
   CopyText,
   Empty,
   ErrorNotice,
+  IdTag,
   Journey,
+  Loading,
+  PageError,
   PUBLICITY_STATEMENT,
   Spinner,
   StateChip,
 } from "../../components/bits";
 
-const EVIDENCE_CLASSES = [
-  "SELLER_DECLARATION",
-  "BUYER_DECLARATION",
-  "MECHANIC_REPORT",
-  "DIAGNOSTIC_SCANNER_REPORT",
-  "SERVICE_INVOICE",
-  "VEHICLE_HISTORY_RECORD",
-  "GOVERNMENT_IMPORT_INSPECTION_DOCUMENT",
-  "IMAGE",
-  "VIDEO",
-  "OCR_EXTRACTED_TEXT",
-  "MANUAL_OBSERVATION",
-  "EXTERNAL_SOURCE_RESULT",
-];
+/** An upload can be labelled anything except the one lane only validators fill. */
+const UPLOAD_CLASSES = EVIDENCE_CLASSES.filter(
+  (c) => c.value !== "EXTERNAL_SOURCE_RESULT",
+);
 
 interface Detail {
   id: string;
@@ -91,11 +100,48 @@ interface EvidenceRow {
   }[];
 }
 
+interface JobRow {
+  kind: string;
+  state: string;
+  lastError: string;
+}
+
+/** The writes that must all land before a packet is sealed. */
+const SUBMISSION_STEPS = new Set(["CREATE", "SUBMIT_EVIDENCE", "SUBMIT_ANCHOR", "SEAL"]);
+
+/**
+ * Where a submitted packet actually is. "Submitted" alone cannot say:
+ * the same state covers writes still landing, a sealed packet waiting for
+ * someone to request the panel, and a seal that failed for good.
+ */
+function submissionStatus(jobs: JobRow[] | null) {
+  if (!jobs) return null;
+  const steps = jobs.filter((j) => SUBMISSION_STEPS.has(j.kind));
+  const failed = steps.find((j) => j.state === "FAILED") ?? null;
+  const pending = steps.filter((j) => j.state !== "DONE" && j.state !== "FAILED").length;
+  const done = steps.filter((j) => j.state === "DONE").length;
+  return { failed, pending, done, total: steps.length };
+}
+
+/** True only when the contract's limit is known and has been reached. */
+function runsExhausted(detail: Detail, successRuns: number): boolean {
+  return detail.maxRuns !== null && successRuns >= detail.maxRuns;
+}
+
+/** The one act that belongs to each stage; the rest are not a question yet. */
+const STAGE_ACT: Record<string, Act["id"]> = {
+  DRAFT: "submit",
+  SUBMITTED: "adjudicate",
+  ADJUDICATED: "appeal",
+  FAILED: "retry",
+};
+
 // Screens 6 + 7 + 8 — the assessment dossier.
 export default function AssessmentDossier() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const [detail, setDetail] = useState<Detail | null>(null);
+  const [jobs, setJobs] = useState<JobRow[] | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [meId, setMeId] = useState<string>("");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -103,6 +149,14 @@ export default function AssessmentDossier() {
   const load = useCallback(async () => {
     try {
       const d = await api<Detail>(`/api/assessments/${id}`);
+      if (d.state === "SUBMITTED" || d.state === "PROCESSING") {
+        const j = await api<{ jobs: JobRow[] }>(`/api/assessments/${id}/jobs`).catch(
+          () => null,
+        );
+        setJobs(j?.jobs ?? null);
+      } else {
+        setJobs(null);
+      }
       setDetail(d);
       setError(null);
     } catch (e) {
@@ -135,16 +189,13 @@ export default function AssessmentDossier() {
     };
   }, [detail, load]);
 
-  if (error && !detail) return <ErrorNotice error={error} />;
-  if (!detail)
-    return (
-      <div className="row" style={{ justifyContent: "center", padding: 60 }}>
-        <Spinner />
-      </div>
-    );
+  if (error && !detail) return <PageError error={error} />;
+  if (!detail) return <Loading />;
 
   const successRuns = detail.runs.filter((r) => r.status === "SUCCESS").length;
+  const submission = detail.state === "SUBMITTED" ? submissionStatus(jobs) : null;
   const acts = actsFor({
+    sealFailed: Boolean(submission?.failed),
     state: detail.state,
     role: detail.myRole,
     evidenceCount: detail.evidenceItems.length,
@@ -163,6 +214,106 @@ export default function AssessmentDossier() {
     freshDisputeCount: 0, // refined on the appeal screen
     hasOnChainId: Boolean(detail.onChainId),
   });
+
+  return (
+    <section className="section">
+      <div className="spread" style={{ marginBottom: 18, alignItems: "flex-start", flexWrap: "wrap" }}>
+        <div style={{ minWidth: 0 }}>
+          <h2>{vehicleTitle(detail.vehicle)}</h2>
+          <div className="row" style={{ marginTop: 10, flexWrap: "wrap", gap: 8 }}>
+            <span className="tag">
+              VIN <span className="tag-mono">{detail.vehicle.vin}</span>
+            </span>
+            <span className="tag">
+              {detail.vehicle.vinCheckDigitOk
+                ? "Check digit consistent"
+                : "Check digit inconsistent — a fact, not a verdict"}
+            </span>
+            {detail.onChainId ? (
+              <span className="tag" title={`On-chain record ${detail.onChainId}`}>
+                {recordNumber(detail.onChainId)}
+              </span>
+            ) : null}
+            <span className="tag">
+              {detail.myRole === "SELLER" ? "You are the seller" : "Shared with you as a buyer"}
+            </span>
+          </div>
+        </div>
+        <StateChip state={detail.state} />
+      </div>
+
+      <IdentityRow
+        status={detail.identityStatus}
+        registryJson={detail.registryJson}
+        declared={vehicleTitle(detail.vehicle)}
+      />
+
+      <div className="card card-tight" style={{ margin: "18px 0 22px" }}>
+        <Journey state={detail.state} />
+      </div>
+
+      <div className="dossier">
+        <aside className="dossier-side">
+          <ClaimsCard detail={detail} onChange={load} />
+          <ActsCard
+            acts={acts}
+            detail={detail}
+            onChange={load}
+            router={router}
+          />
+          {detail.myRole === "SELLER" ? <ShareCard id={detail.id} /> : null}
+        </aside>
+
+        <div className="stack" style={{ gap: 18 }}>
+          {detail.state === "PROCESSING" ? <ProcessingCard detail={detail} /> : null}
+          {detail.state === "SUBMITTED" ? (
+            submission?.failed ? (
+              <SealFailedCard job={submission.failed} />
+            ) : submission && submission.pending === 0 && submission.total > 0 ? (
+              <div className="card">
+                <h3>Sealed and ready for the panel</h3>
+                <p className="muted small" style={{ marginTop: 8 }}>
+                  Every item is on chain and the packet is sealed under its
+                  manifest root. Either party can now request adjudication.
+                </p>
+              </div>
+            ) : (
+              <ProcessingCard
+                detail={detail}
+                progress={submission ? `${submission.done} of ${submission.total} steps complete` : ""}
+              />
+            )
+          ) : null}
+          {detail.state === "FAILED" ? <FailureCard detail={detail} /> : null}
+          {detail.state === "ADJUDICATED" ? (
+            <div className="card">
+              <div className="spread" style={{ flexWrap: "wrap" }}>
+                <h3>The verdict stands</h3>
+                <Link
+                  className="btn btn-primary"
+                  href={`/assessments/${detail.id}/report`}
+                >
+                  Open the report
+                </Link>
+              </div>
+              <p className="muted small" style={{ marginTop: 8 }}>
+                {runsExhausted(detail, successRuns)
+                  ? `This is run ${successRuns} of ${detail.maxRuns}, the most the contract allows, so this verdict is final. Earlier runs stay on the record, unchanged.`
+                  : `${
+                      detail.maxRuns === null
+                        ? `This is run ${successRuns}.`
+                        : `This is run ${successRuns} of up to ${detail.maxRuns}.`
+                    } New evidence or a new dispute opens an appeal; earlier runs stay on the record, unchanged.`}
+              </p>
+            </div>
+          ) : null}
+
+          <EvidenceSection detail={detail} meId={meId} onChange={load} />
+        </div>
+      </div>
+    </section>
+  );
+}
 
 /**
  * What the public VIN registry said — the one fact on the record that no
@@ -185,116 +336,43 @@ function IdentityRow({
   } catch {
     reg = {};
   }
-  const decoded = [reg.ModelYear, reg.Make, reg.Model]
+  const decoded = [reg.ModelYear, registryName(reg.Make), registryName(reg.Model)]
     .filter(Boolean)
     .join(" ");
-  const body: Record<string, string> = {
+  const body = reg.BodyClass ? ` (${registryName(reg.BodyClass)})` : "";
+  const text: Record<string, string> = {
     CONFIRMED: decoded
-      ? `the VIN decodes to ${decoded}${reg.BodyClass ? ` (${reg.BodyClass})` : ""} — consistent with this listing`
-      : "the VIN decodes consistently with this listing",
-    MISMATCH: `the VIN decodes to ${decoded || "a different vehicle"}${reg.BodyClass ? ` (${reg.BodyClass})` : ""}, not a ${declared}. Every claim is capped until this is reconciled.`,
-    UNDECODABLE: "the registry could not decode this VIN — no confirmation either way, and not evidence against anyone",
-    SOURCE_UNAVAILABLE: "the registry was unreachable when this record opened — no confirmation either way, and not evidence against anyone",
+      ? `The VIN decodes to a ${decoded}${body}, consistent with this listing.`
+      : "The VIN decodes consistently with this listing.",
+    MISMATCH: `The VIN decodes to ${decoded ? `a ${decoded}${body}` : "a different vehicle"}, not a ${declared}. Every claim is capped until this is reconciled.`,
+    UNDECODABLE:
+      "The registry could not decode this VIN. That is no confirmation either way, and not evidence against anyone.",
+    SOURCE_UNAVAILABLE:
+      "The registry could not be reached when this record opened. That is no confirmation either way, and not evidence against anyone.",
   };
   const tone =
     status === "MISMATCH"
       ? "notice notice-warn"
       : status === "CONFIRMED"
         ? "notice notice-ok"
-        : "notice";
+        : "notice notice-dim";
   return (
-    <div className={tone} style={{ marginTop: 12, maxWidth: 620 }}>
-      <strong>Independent identity check — {status.replace(/_/g, " ").toLowerCase()}.</strong>{" "}
-      {body[status] ?? status}
-      <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-        Read from the public federal VIN registry by every validator
-        itself, before this record existed. No party supplied it.
+    <div className={tone} style={{ maxWidth: 720 }}>
+      <strong>Independent identity check: {identityLabel(status)}.</strong>{" "}
+      {text[status] ?? ""}
+      <div className="fine" style={{ marginTop: 6, color: "inherit", opacity: 0.8 }}>
+        Read from the public federal VIN registry by every validator itself,
+        before this record existed. No party supplied it.
       </div>
     </div>
   );
 }
 
-  return (
-    <section className="section">
-      <div className="spread" style={{ marginBottom: 18, flexWrap: "wrap" }}>
-        <div>
-          <h2>
-            {detail.vehicle.year} {detail.vehicle.make} {detail.vehicle.model}
-          </h2>
-          <div className="row" style={{ marginTop: 8, flexWrap: "wrap" }}>
-            <span className="tag">{detail.vehicle.vin}</span>
-            <span className="tag">
-              check digit{" "}
-              {detail.vehicle.vinCheckDigitOk ? "consistent" : "not consistent (a fact, not a verdict)"}
-            </span>
-            {detail.onChainId ? (
-              <span className="tag">{detail.onChainId}</span>
-            ) : null}
-          </div>
-          <IdentityRow
-            status={detail.identityStatus}
-            registryJson={detail.registryJson}
-            declared={`${detail.vehicle.year} ${detail.vehicle.make} ${detail.vehicle.model}`}
-          />
-        </div>
-        <StateChip state={detail.state} />
-      </div>
-
-      <div className="card card-tight" style={{ marginBottom: 22 }}>
-        <Journey state={detail.state} />
-      </div>
-
-      <div className="dossier">
-        <aside className="dossier-side">
-          <ClaimsCard detail={detail} meId={meId} onChange={load} />
-          <ActsCard
-            acts={acts}
-            detail={detail}
-            onChange={load}
-            router={router}
-          />
-          {detail.myRole === "SELLER" ? <ShareCard id={detail.id} /> : null}
-        </aside>
-
-        <div className="stack" style={{ gap: 18 }}>
-          {detail.state === "SUBMITTED" || detail.state === "PROCESSING" ? (
-            <ProcessingCard detail={detail} />
-          ) : null}
-          {detail.state === "FAILED" ? <FailureCard detail={detail} /> : null}
-          {detail.state === "ADJUDICATED" ? (
-            <div className="card">
-              <div className="spread">
-                <h3>The verdict stands</h3>
-                <Link
-                  className="btn btn-primary"
-                  href={`/assessments/${detail.id}/report`}
-                >
-                  Open the report
-                </Link>
-              </div>
-              <p className="muted small" style={{ marginTop: 8 }}>
-                Run {successRuns}
-                {detail.maxRuns === null ? "" : ` of at most ${detail.maxRuns}`}.
-                New evidence or a new dispute opens an appeal — prior runs
-                stay on the record, immutable.
-              </p>
-            </div>
-          ) : null}
-
-          <EvidenceSection detail={detail} meId={meId} onChange={load} />
-        </div>
-      </div>
-    </section>
-  );
-}
-
 function ClaimsCard({
   detail,
-  meId,
   onChange,
 }: {
   detail: Detail;
-  meId: string;
   onChange: () => void;
 }) {
   const [selecting, setSelecting] = useState(false);
@@ -333,10 +411,10 @@ function ClaimsCard({
           </button>
         ) : null}
       </div>
-      <div className="stack" style={{ gap: 10 }}>
+      <div className="stack" style={{ gap: 14 }}>
         {detail.vehicle.claims.map((c) => (
           <div key={c.id}>
-            <div className="row" style={{ gap: 8 }}>
+            <label className="row" style={{ gap: 8, cursor: selecting ? "pointer" : "default" }}>
               {selecting ? (
                 <input
                   type="checkbox"
@@ -346,39 +424,39 @@ function ClaimsCard({
                       e.target.checked ? [...p, c.id] : p.filter((x) => x !== c.id),
                     )
                   }
-                  style={{ width: "auto" }}
                 />
               ) : null}
-              <span className="tag">{c.claimId}</span>
-              <b className="small">{c.type.replaceAll("_", " ")}</b>
-            </div>
-            <p className="small" style={{ marginTop: 3 }}>
+              <IdTag>{c.claimId}</IdTag>
+              <b className="small">{claimTypeLabel(c.type)}</b>
+            </label>
+            <p className="small" style={{ marginTop: 4 }}>
               “{c.declaredValue}”
             </p>
             {c.disputes.length > 0 ? (
-              <span className="chip chip-warn" style={{ marginTop: 5 }}>
-                <span className="dot" />
-                disputed by {c.disputes.length} part
-                {c.disputes.length === 1 ? "y" : "ies"}
-              </span>
+              <div style={{ marginTop: 6 }}>
+                <Chip tone="warn">
+                  Disputed by {plural(c.disputes.length, "party", "parties")}
+                </Chip>
+              </div>
             ) : null}
           </div>
         ))}
       </div>
       {selecting ? (
-        <div style={{ marginTop: 12 }}>
+        <div style={{ marginTop: 14 }}>
           <div className="field">
-            <label>Why (optional, on the record)</label>
+            <label htmlFor="dispute-note">Why you dispute it (optional, on the record)</label>
             <input
+              id="dispute-note"
               type="text"
               maxLength={200}
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="odometer looks off against the history"
+              placeholder="Odometer looks off against the history"
             />
           </div>
           <ErrorNotice error={error} />
-          <div className="row">
+          <div className="row" style={{ flexWrap: "wrap" }}>
             <button
               className="btn btn-primary"
               disabled={busy || picked.length === 0}
@@ -390,10 +468,10 @@ function ClaimsCard({
               Cancel
             </button>
           </div>
-          <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
-            A dispute is your recorded assertion, not a fact — it gives your
-            evidence against these claims its standing, and the panel is
-            told exactly that.
+          <p className="fine" style={{ marginTop: 10 }}>
+            A dispute is your recorded assertion, not a fact. It gives your
+            evidence against these claims its standing, and the panel is told
+            exactly that.
           </p>
         </div>
       ) : null}
@@ -437,40 +515,35 @@ function ActsCard({
     }
   }
 
-  const actionable = ["submit", "adjudicate", "appeal", "retry"];
+  const stageAct = acts.find((a) => a.id === STAGE_ACT[detail.state]);
   return (
     <div className="card card-tight">
-      <h3 style={{ marginBottom: 10 }}>Next steps</h3>
-      <div className="stack" style={{ gap: 8 }}>
-        {acts
-          .filter((a) => actionable.includes(a.id))
-          .map((a) =>
-            a.available ? (
-              <button
-                key={a.id}
-                className="btn btn-primary"
-                disabled={busy !== null}
-                onClick={() => run(a)}
-              >
-                {busy === a.id ? <Spinner /> : a.label}
-              </button>
-            ) : (
-              <div key={a.id} className="small muted" title={a.reason}>
-                <b style={{ color: "var(--faint)" }}>{a.label}</b> — {a.reason}
-              </div>
-            ),
-          )}
-      </div>
+      <h3 style={{ marginBottom: 10 }}>Next step</h3>
+      {!stageAct ? (
+        <p className="muted small">
+          The panel is judging the record. Nothing here needs you.
+        </p>
+      ) : stageAct.available ? (
+        <button
+          className="btn btn-primary"
+          style={{ width: "100%" }}
+          disabled={busy !== null}
+          onClick={() => run(stageAct)}
+        >
+          {busy === stageAct.id ? <Spinner /> : stageAct.label}
+        </button>
+      ) : (
+        <p className="act-blocked">
+          <b>{stageAct.label}</b>
+          <span>{sentence(stageAct.reason)}</span>
+        </p>
+      )}
       <ErrorNotice error={error} />
       {detail.onChainId ? (
         <>
           <div className="divider" />
-          <Link
-            className="small"
-            style={{ color: "var(--signal-deep)", fontWeight: 700 }}
-            href={`/assessments/${detail.id}/receipt`}
-          >
-            Intake receipt — is my evidence in the judged record? →
+          <Link className="link small" href={`/assessments/${detail.id}/receipt`}>
+            Intake receipt: is my evidence in the judged record? →
           </Link>
         </>
       ) : null}
@@ -486,10 +559,10 @@ function ShareCard({ id }: { id: string }) {
   return (
     <div className="card card-tight">
       <h3 style={{ marginBottom: 8 }}>Share with a buyer</h3>
-      <p className="muted" style={{ fontSize: 12.5 }}>
-        A signed link, 14-day wall-clock expiry, revocable in Settings. It
-        governs the app&apos;s copy only — anything adjudicated is already
-        public on the chain.
+      <p className="fine">
+        A signed link that expires after 14 days, and that you can revoke
+        in Settings. It controls the app&apos;s copy only; anything
+        adjudicated is already public on the chain.
       </p>
       <ErrorNotice error={error} />
       {token ? (
@@ -498,14 +571,14 @@ function ShareCard({ id }: { id: string }) {
             value={`${window.location.origin}/share/${token}`}
             short={`${window.location.origin.replace(/^https?:\/\//, "")}/share/${token.slice(0, 8)}…`}
           />
-          <p className="muted" style={{ fontSize: 11.5, marginTop: 6 }}>
-            Copy it now — the raw link is shown exactly once.
+          <p className="fine" style={{ marginTop: 6 }}>
+            Copy it now: the full link is shown only once.
           </p>
         </div>
       ) : (
         <button
           className="btn btn-ghost"
-          style={{ marginTop: 10 }}
+          style={{ marginTop: 12 }}
           disabled={busy}
           onClick={async () => {
             setBusy(true);
@@ -530,16 +603,34 @@ function ShareCard({ id }: { id: string }) {
   );
 }
 
-function ProcessingCard({ detail }: { detail: Detail }) {
+function SealFailedCard({ job }: { job: JobRow }) {
+  return (
+    <div className="card">
+      <h3>The packet could not be sealed</h3>
+      {job.lastError ? (
+        <p className="notice notice-bad" style={{ marginTop: 10 }}>
+          {failureText(job.lastError)}
+        </p>
+      ) : null}
+      <p className="muted small" style={{ marginTop: 10 }}>
+        Nothing was judged: a packet that is not sealed never reaches the
+        panel. Whatever did land stays on the chain as it is.
+      </p>
+    </div>
+  );
+}
+
+function ProcessingCard({ detail, progress }: { detail: Detail; progress?: string }) {
   return (
     <div className="card">
       <div className="row">
         <Spinner />
         <h3>
           {detail.state === "SUBMITTED"
-            ? "Packet queued for the chain"
+            ? "The packet is going on chain"
             : "The panel is judging the record"}
         </h3>
+        {progress ? <span className="fine" style={{ marginLeft: "auto" }}>{progress}</span> : null}
       </div>
       <p className="muted small" style={{ marginTop: 8 }}>
         Every step is a transaction: the record is entered item by item,
@@ -559,12 +650,12 @@ function FailureCard({ detail }: { detail: Detail }) {
       <h3>The last attempt did not survive consensus</h3>
       {last?.errorText ? (
         <p className="notice notice-bad" style={{ marginTop: 10 }}>
-          {last.errorText}
+          {failureText(last.errorText)}
         </p>
       ) : null}
       <p className="muted small" style={{ marginTop: 10 }}>
-        Nothing was recorded — the prior record stands. A retry is a new
-        attempt with its own transaction hash.
+        Nothing was recorded, so the prior record stands. A retry is a new
+        attempt with its own transaction.
       </p>
       <AttemptsFeed detail={detail} />
     </div>
@@ -574,39 +665,36 @@ function FailureCard({ detail }: { detail: Detail }) {
 function AttemptsFeed({ detail }: { detail: Detail }) {
   if (detail.runs.length === 0) return null;
   return (
-    <div style={{ marginTop: 14 }}>
-      <div className="stack" style={{ gap: 8 }}>
-        {detail.runs.map((r, i) => (
-          <div key={i} className="row small" style={{ flexWrap: "wrap" }}>
-            <span
-              className={`chip ${
-                r.status === "SUCCESS"
-                  ? "chip-ok"
-                  : r.status === "REJECTED"
-                    ? "chip-dim"
-                    : "chip-bad"
-              }`}
+    <div className="stack" style={{ gap: 10, marginTop: 14 }}>
+      {detail.runs.map((r, i) => (
+        <div key={i}>
+          <div className="row small" style={{ flexWrap: "wrap", gap: 8 }}>
+            <Chip
+              tone={
+                r.status === "SUCCESS" ? "ok" : r.status === "REJECTED" ? "dim" : "bad"
+              }
             >
-              <span className="dot" />
-              {r.kind === "RE_ADJUDICATION" ? "appeal " : ""}
-              {r.status.toLowerCase()}
-            </span>
+              {attemptLabel(r.kind, r.status)}
+            </Chip>
             {r.txHash ? (
               <a
                 className="tag"
                 href={`${EXPLORER}/tx/${r.txHash}`}
                 target="_blank"
                 rel="noreferrer"
+                title={r.txHash}
               >
-                {shortHash(r.txHash)}
+                View transaction ↗
               </a>
             ) : null}
-            {r.errorText ? (
-              <span className="muted">{r.errorText}</span>
-            ) : null}
           </div>
-        ))}
-      </div>
+          {r.errorText ? (
+            <p className="fine" style={{ marginTop: 4 }}>
+              {failureText(r.errorText)}
+            </p>
+          ) : null}
+        </div>
+      ))}
     </div>
   );
 }
@@ -622,21 +710,24 @@ function EvidenceSection({
   meId: string;
   onChange: () => void;
 }) {
-  const canAdd = detail.state === "DRAFT" || detail.state === "ADJUDICATED";
+  const successRuns = detail.runs.filter((r) => r.status === "SUCCESS").length;
+  // Appeal evidence only matters while an appeal is still possible.
+  const canAdd =
+    detail.state === "DRAFT" ||
+    (detail.state === "ADJUDICATED" && !runsExhausted(detail, successRuns));
   return (
     <>
-      <div className="spread">
+      <div className="spread" style={{ marginTop: 4 }}>
         <h3 style={{ fontSize: 22 }}>The record</h3>
         <span className="muted small">
-          {detail.evidenceItems.length} item
-          {detail.evidenceItems.length === 1 ? "" : "s"}
+          {plural(detail.evidenceItems.length, "item")}
         </span>
       </div>
       {detail.evidenceItems.length === 0 ? (
         <Empty>
-          The record is empty. Upload the paperwork that backs (or
-          contests) the claims — invoices, history reports, scanner dumps,
-          photos. Every file is hashed the moment it lands.
+          The record is empty. Upload the paperwork that backs or contests the
+          claims: invoices, history reports, scanner reports, photos. Every
+          file is fingerprinted the moment it arrives.
         </Empty>
       ) : (
         detail.evidenceItems.map((item) => (
@@ -650,9 +741,27 @@ function EvidenceSection({
         ))
       )}
       {canAdd ? <UploadCard detail={detail} onChange={onChange} /> : null}
-      {canAdd ? <AnchorCard detail={detail} onChange={onChange} /> : null}
+      {canAdd && detail.state === "DRAFT" ? (
+        <AnchorCard detail={detail} onChange={onChange} />
+      ) : null}
     </>
   );
+}
+
+function sourceHost(url: string | null): string {
+  try {
+    return url ? new URL(url).hostname : "";
+  } catch {
+    return "";
+  }
+}
+
+function AnchorStatus({ status }: { status: string }) {
+  if (status === "PENDING_ENTRY")
+    return <Chip tone="signal">Validators are fetching it</Chip>;
+  if (status === "SOURCE_UNAVAILABLE")
+    return <Chip tone="dim">Validators could not agree on it; never judged</Chip>;
+  return <Chip tone="ok">Fetched and hash-agreed by every validator</Chip>;
 }
 
 function EvidenceCard({
@@ -670,71 +779,63 @@ function EvidenceCard({
   const [panel, setPanel] = useState<"none" | "redact" | "rows" | "consent">(
     "none",
   );
-  const editable = mine && !item.consentedAt && detail.state === "DRAFT";
+  const anchor = item.lane === "ANCHOR";
+  const editable = !anchor && mine && !item.consentedAt && detail.state === "DRAFT";
   const editableAppeal =
-    mine && !item.consentedAt && detail.state === "ADJUDICATED";
+    !anchor && mine && !item.consentedAt && detail.state === "ADJUDICATED";
+  const who = mine
+    ? "you"
+    : item.uploaderRole === "BUYER"
+      ? "the buyer"
+      : "the seller";
 
   return (
     <div className="card card-tight">
-      <div className="spread" style={{ flexWrap: "wrap" }}>
-        <div className="row" style={{ flexWrap: "wrap" }}>
-          <span className="tag">{item.evidenceId}</span>
-          <b className="small">{item.declaredClass.replaceAll("_", " ")}</b>
-          {item.declaredLabel ? (
-            <span className="muted small">“{item.declaredLabel}”</span>
-          ) : null}
-        </div>
-        <div className="row" style={{ flexWrap: "wrap" }}>
-          <span className="tag">{item.uploaderRole.toLowerCase()} upload</span>
-          {item.status === "UNEXTRACTED" ? (
-            <span className="chip chip-dim">
-              <span className="dot" />
-              stored, unextracted
-            </span>
-          ) : null}
-          {item.lane === "ANCHOR" ? (
-            <span
-              className="tag"
-              title={item.anchorUrl ?? ""}
-            >
-              {item.status === "PENDING_ENTRY"
-                ? "independent source — validators are fetching it"
-                : item.status === "SOURCE_UNAVAILABLE"
-                  ? "independent source — validators could not agree on it; never judged"
-                  : "independent source — fetched and hash-agreed by every validator"}
-            </span>
-          ) : null}
-          {item.redactionStatus === "REDACTED" ? (
-            <span className="chip chip-info">
-              <span className="dot" />
-              redacted
-            </span>
-          ) : null}
-          {item.consentedAt ? (
-            <span className="chip chip-ok">
-              <span className="dot" />
-              consented
-            </span>
-          ) : (
-            <span className="chip chip-warn">
-              <span className="dot" />
-              consent pending
-            </span>
-          )}
-          {item.onChainTxHash ? (
-            <a
-              className="tag"
-              href={`${EXPLORER}/tx/${item.onChainTxHash}`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              on-chain {shortHash(item.onChainTxHash, 6)}
-            </a>
-          ) : null}
-        </div>
+      <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
+        <IdTag>{item.evidenceId}</IdTag>
+        <b className="small">{evidenceClassLabel(item.declaredClass)}</b>
+        {item.declaredLabel ? (
+          <span className="muted small">“{item.declaredLabel}”</span>
+        ) : null}
       </div>
 
-      <div className="row" style={{ marginTop: 10, flexWrap: "wrap" }}>
+      <div className="row" style={{ flexWrap: "wrap", gap: 6, marginTop: 10 }}>
+        <span className="tag">
+          {anchor ? `Added by ${who}` : `Uploaded by ${who}`}
+        </span>
+        {anchor ? (
+          <>
+            {sourceHost(item.anchorUrl) ? (
+              <span className="tag" title={item.anchorUrl ?? ""}>
+                From {sourceHost(item.anchorUrl)}
+              </span>
+            ) : null}
+            <AnchorStatus status={item.status} />
+          </>
+        ) : null}
+        {!anchor && item.status === "UNEXTRACTED" ? (
+          <Chip tone="dim">Stored, text not extracted</Chip>
+        ) : null}
+        {item.redactionStatus === "REDACTED" ? <Chip tone="info">Redacted</Chip> : null}
+        {anchor ? null : item.consentedAt ? (
+          <Chip tone="ok">Consented</Chip>
+        ) : (
+          <Chip tone="warn">Consent pending</Chip>
+        )}
+        {item.onChainTxHash ? (
+          <a
+            className="tag"
+            href={`${EXPLORER}/tx/${item.onChainTxHash}`}
+            target="_blank"
+            rel="noreferrer"
+            title={`On chain · transaction ${item.onChainTxHash}`}
+          >
+            On chain ↗
+          </a>
+        ) : null}
+      </div>
+
+      <div className="row actions-row" style={{ marginTop: 8, flexWrap: "wrap", gap: 4 }}>
         <button className="btn btn-quiet" onClick={() => setOpen((o) => !o)}>
           {open ? "Hide text" : "Review text"}
         </button>
@@ -765,32 +866,23 @@ function EvidenceCard({
       </div>
 
       {open ? (
-        <pre
-          className="mono"
-          style={{
-            background: "var(--well)",
-            borderRadius: 10,
-            padding: 14,
-            marginTop: 12,
-            whiteSpace: "pre-wrap",
-            fontSize: 12.5,
-            maxHeight: 260,
-            overflow: "auto",
-          }}
-        >
-          {item.extraction?.status === "EXTRACTED"
-            ? item.extraction.normalizedText
-            : "[stored but unextracted — its content is unknown to the record, and the panel is told so]"}
-        </pre>
+        item.extraction?.status === "EXTRACTED" ? (
+          <pre className="evidence-text">{item.extraction.normalizedText}</pre>
+        ) : (
+          <p className="notice notice-dim" style={{ marginTop: 12 }}>
+            This file is stored, but its text could not be extracted. Its
+            content is unknown to the record, and the panel is told so.
+          </p>
+        )
       ) : null}
 
       {item.observations.length > 0 ? (
-        <div className="row" style={{ marginTop: 10, flexWrap: "wrap" }}>
+        <div className="row" style={{ marginTop: 10, flexWrap: "wrap", gap: 6 }}>
           {item.observations.map((o, i) => (
-            <span key={i} className="tag">
+            <span key={i} className="tag" title={o.sourceField || undefined}>
               {o.diagnosticCode
-                ? `DTC ${o.diagnosticCode}`
-                : `${o.docDate}: ${o.odometerReading?.toLocaleString()} ${o.odometerUnit?.toLowerCase()}`}
+                ? `Trouble code ${o.diagnosticCode}`
+                : `${formatDocDate(o.docDate)} · ${formatOdometer(o.odometerReading, o.odometerUnit)}`}
             </span>
           ))}
         </div>
@@ -825,10 +917,15 @@ function RedactPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
+  const excerpt = (s: { start: number; end: number }) => {
+    const t = text.slice(s.start, s.end).replace(/\s+/g, " ").trim();
+    return t.length > 36 ? `${t.slice(0, 34)}…` : t;
+  };
+
   return (
-    <div style={{ marginTop: 12 }}>
+    <div className="panel">
       <p className="muted small">
-        Select the passage to remove, then add the span. Redaction re-hashes
+        Select the passage to remove, then add it. Redaction re-fingerprints
         the item; it must happen before consent and is impossible after
         submission.
       </p>
@@ -836,7 +933,8 @@ function RedactPanel({
         readOnly
         rows={7}
         className="mono"
-        style={{ marginTop: 8, fontSize: 12.5 }}
+        aria-label="Evidence text to redact"
+        style={{ marginTop: 10, fontSize: 12.5 }}
         value={text}
         onSelect={(e) => {
           const el = e.target as HTMLTextAreaElement;
@@ -844,7 +942,7 @@ function RedactPanel({
           setSelEnd(el.selectionEnd);
         }}
       />
-      <div className="row" style={{ marginTop: 8, flexWrap: "wrap" }}>
+      <div className="row" style={{ marginTop: 10, flexWrap: "wrap", gap: 6 }}>
         <button
           className="btn btn-ghost"
           disabled={selStart === null || selEnd === null || selStart === selEnd}
@@ -860,21 +958,23 @@ function RedactPanel({
           Add span
         </button>
         {spans.map((s, i) => (
-          <span key={i} className="tag">
-            {s.start}–{s.end}{" "}
-            <span
-              style={{ cursor: "pointer" }}
+          <span key={i} className="tag redaction-span">
+            “{excerpt(s)}”
+            <button
+              type="button"
+              className="tag-remove"
+              aria-label="Remove this span"
               onClick={() => setSpans((all) => all.filter((_, j) => j !== i))}
             >
               ✕
-            </span>
+            </button>
           </span>
         ))}
       </div>
       <ErrorNotice error={error} />
       <button
         className="btn btn-primary"
-        style={{ marginTop: 10 }}
+        style={{ marginTop: 12 }}
         disabled={busy || spans.length === 0}
         onClick={async () => {
           setBusy(true);
@@ -891,11 +991,25 @@ function RedactPanel({
           }
         }}
       >
-        {busy ? <Spinner /> : `Apply ${spans.length} redaction span(s)`}
+        {busy ? (
+          <Spinner />
+        ) : spans.length === 1 ? (
+          "Apply 1 redaction"
+        ) : (
+          `Apply ${spans.length} redactions`
+        )}
       </button>
     </div>
   );
 }
+
+const EMPTY_ROW = {
+  docDate: "",
+  odometerReading: "",
+  odometerUnit: "MILES",
+  diagnosticCode: "",
+  sourceField: "",
+};
 
 function RowsPanel({
   item,
@@ -915,97 +1029,71 @@ function RowsPanel({
           diagnosticCode: o.diagnosticCode ?? "",
           sourceField: o.sourceField,
         }))
-      : [
-          {
-            docDate: "",
-            odometerReading: "",
-            odometerUnit: "MILES",
-            diagnosticCode: "",
-            sourceField: "",
-          },
-        ],
+      : [{ ...EMPTY_ROW }],
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const set = (i: number, patch: Partial<typeof EMPTY_ROW>) =>
+    setRows((all) => all.map((x, j) => (j === i ? { ...x, ...patch } : x)));
 
   return (
-    <div style={{ marginTop: 12 }}>
+    <div className="panel">
       <p className="muted small">
-        Typed rows are what the contract recomputes mileage conflicts from —
-        a reading that lives only in free text can never raise a code flag.
-        Diagnostic codes are normalized (P0301 shape) in code; what a code
-        MEANS stays with the panel.
+        The readings you type here are what the contract checks mileage
+        against; a reading that appears only in free text can never raise a
+        mileage flag. Trouble codes are normalized in code, and what a code
+        means stays with the panel.
       </p>
-      <div className="stack" style={{ gap: 8, marginTop: 10 }}>
+      <div className="stack" style={{ gap: 8, marginTop: 12 }}>
         {rows.map((r, i) => (
           <div key={i} className="row" style={{ flexWrap: "wrap", gap: 8 }}>
             <input
               type="date"
-              style={{ width: 150 }}
+              aria-label="Date on the document"
+              style={{ width: 160 }}
               value={r.docDate}
-              onChange={(e) =>
-                setRows((all) =>
-                  all.map((x, j) => (j === i ? { ...x, docDate: e.target.value } : x)),
-                )
-              }
+              onChange={(e) => set(i, { docDate: e.target.value })}
             />
             <input
               type="number"
-              placeholder="odometer"
-              style={{ width: 120 }}
+              placeholder="Odometer"
+              aria-label="Odometer reading"
+              style={{ width: 130 }}
               value={r.odometerReading}
-              onChange={(e) =>
-                setRows((all) =>
-                  all.map((x, j) =>
-                    j === i ? { ...x, odometerReading: e.target.value } : x,
-                  ),
-                )
-              }
+              onChange={(e) => set(i, { odometerReading: e.target.value })}
             />
             <select
-              style={{ width: 92 }}
+              aria-label="Unit"
+              style={{ width: 80 }}
               value={r.odometerUnit}
-              onChange={(e) =>
-                setRows((all) =>
-                  all.map((x, j) =>
-                    j === i ? { ...x, odometerUnit: e.target.value } : x,
-                  ),
-                )
-              }
+              onChange={(e) => set(i, { odometerUnit: e.target.value })}
             >
-              <option>MILES</option>
-              <option>KM</option>
+              <option value="MILES">mi</option>
+              <option value="KM">km</option>
             </select>
             <input
               type="text"
-              placeholder="DTC (P0301)"
+              placeholder="Trouble code"
+              aria-label="Trouble code, for example P0301"
+              title="For example P0301"
               className="mono-input"
-              style={{ width: 110 }}
+              style={{ width: 130 }}
               value={r.diagnosticCode}
-              onChange={(e) =>
-                setRows((all) =>
-                  all.map((x, j) =>
-                    j === i ? { ...x, diagnosticCode: e.target.value.toUpperCase() } : x,
-                  ),
-                )
-              }
+              onChange={(e) => set(i, { diagnosticCode: e.target.value.toUpperCase() })}
             />
             <input
               type="text"
-              placeholder="where in the document"
-              style={{ flex: 1, minWidth: 140 }}
+              placeholder="Where in the document"
+              aria-label="Where in the document"
+              style={{ flex: 1, minWidth: 160 }}
               value={r.sourceField}
-              onChange={(e) =>
-                setRows((all) =>
-                  all.map((x, j) =>
-                    j === i ? { ...x, sourceField: e.target.value } : x,
-                  ),
-                )
-              }
+              onChange={(e) => set(i, { sourceField: e.target.value })}
             />
             <button
               className="btn btn-quiet"
               disabled={rows.length <= 1}
+              aria-label="Remove this reading"
+              title="Remove this reading"
               onClick={() => setRows((all) => all.filter((_, j) => j !== i))}
             >
               ✕
@@ -1013,24 +1101,13 @@ function RowsPanel({
           </div>
         ))}
       </div>
-      <div className="row" style={{ marginTop: 10 }}>
+      <div className="row" style={{ marginTop: 12, flexWrap: "wrap" }}>
         <button
           className="btn btn-quiet"
           disabled={rows.length >= 12}
-          onClick={() =>
-            setRows((all) => [
-              ...all,
-              {
-                docDate: "",
-                odometerReading: "",
-                odometerUnit: "MILES",
-                diagnosticCode: "",
-                sourceField: "",
-              },
-            ])
-          }
+          onClick={() => setRows((all) => [...all, { ...EMPTY_ROW }])}
         >
-          Add row
+          Add a reading
         </button>
         <button
           className="btn btn-primary"
@@ -1050,7 +1127,7 @@ function RowsPanel({
             }
           }}
         >
-          {busy ? <Spinner /> : "Save typed rows"}
+          {busy ? <Spinner /> : "Save readings"}
         </button>
       </div>
       <ErrorNotice error={error} />
@@ -1071,31 +1148,23 @@ function ConsentPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   return (
-    <div
-      style={{
-        marginTop: 12,
-        background: "var(--signal-soft)",
-        borderRadius: 12,
-        padding: 14,
-      }}
-    >
+    <div className="panel panel-signal">
       <p className="small" style={{ fontWeight: 600 }}>
         {PUBLICITY_STATEMENT}
       </p>
-      <label className="row small" style={{ marginTop: 10, cursor: "pointer" }}>
+      <label className="row small" style={{ marginTop: 12, cursor: "pointer", gap: 10 }}>
         <input
           type="checkbox"
-          style={{ width: "auto" }}
           checked={acked}
           onChange={(e) => setAcked(e.target.checked)}
         />
-        I understand: once adjudicated, this item&apos;s text is public
+        I understand that once this item is adjudicated, its text is public
         forever.
       </label>
       <ErrorNotice error={error} />
       <button
         className="btn btn-primary"
-        style={{ marginTop: 10 }}
+        style={{ marginTop: 12 }}
         disabled={!acked || busy}
         onClick={async () => {
           setBusy(true);
@@ -1131,7 +1200,7 @@ function ConsentPanel({
           }
         }}
       >
-        {busy ? <Spinner /> : `Consent ${item.evidenceId} for the packet`}
+        {busy ? <Spinner /> : `Consent to publish ${item.evidenceId}`}
       </button>
     </div>
   );
@@ -1221,54 +1290,58 @@ function AnchorCard({
   }, []);
 
   return (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <h3>Add an independent source</h3>
-      <p className="muted small">
+      <p className="muted small" style={{ marginTop: 6 }}>
         Unlike a document you upload, this one is fetched by{" "}
-        <strong>every validator itself</strong> and only enters the record
-        if they all agree on the bytes. It is the only evidence neither
-        party can author — and the only way a claim can reach VERIFIED.
+        <strong>every validator itself</strong>, and it only enters the record
+        if they all agree on its contents. It is the only evidence neither
+        party can author, and the only way a claim can be verified.
       </p>
       {allowlist !== null && allowlist.length === 0 ? (
-        <div className="notice notice-warn" style={{ marginTop: 10 }}>
-          This deployment has no sources allowlisted, so VERIFIED is not
-          reachable here. That is a deployment choice, and the report says
-          so rather than pretending otherwise.
+        <div className="notice notice-warn" style={{ marginTop: 12 }}>
+          This deployment allows no independent sources, so no claim can be
+          verified here. That is a deployment choice, and the report says so
+          rather than pretending otherwise.
         </div>
       ) : (
         <>
-          <div className="field" style={{ marginTop: 10 }}>
-            <label>Source URL</label>
+          <div className="field" style={{ marginTop: 14 }}>
+            <label htmlFor="anchor-url">Source address</label>
             <input
+              id="anchor-url"
               type="url"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               placeholder="https://raw.githubusercontent.com/…/registry-extract.txt"
             />
             {allowlist ? (
-              <span className="muted" style={{ fontSize: 12 }}>
-                Allowlisted by the contract: {allowlist.join(", ")}
+              <span className="hint">
+                Accepted sources: {allowlist.join(", ")}
               </span>
             ) : null}
           </div>
           <div className="field">
-            <label>What this is (your label — the panel judges the content)</label>
+            <label htmlFor="anchor-label">What it is</label>
             <input
+              id="anchor-label"
               type="text"
               maxLength={80}
               value={label}
               onChange={(e) => setLabel(e.target.value)}
               placeholder="National registry extract"
             />
+            <span className="hint">Your label. The panel judges the content itself.</span>
           </div>
-          <p className="muted" style={{ fontSize: 12 }}>
-            We read it once now to commit an expected hash. If what the
-            validators fetch differs, the item is recorded as unavailable
-            and never judged — you will see that on the record.
+          <p className="fine">
+            We read it once now to commit an expected fingerprint. If what the
+            validators fetch differs, the item is recorded as unavailable and
+            never judged, and you will see that on the record.
           </p>
           <ErrorNotice error={error} />
           <button
             className="btn btn-primary"
+            style={{ marginTop: 12 }}
             disabled={busy || !url.startsWith("https://")}
             onClick={async () => {
               setBusy(true);
@@ -1288,7 +1361,7 @@ function AnchorCard({
               }
             }}
           >
-            {busy ? <Spinner /> : "Put it to the validators"}
+            {busy ? <Spinner /> : "Send it to the validators"}
           </button>
         </>
       )}
@@ -1304,6 +1377,7 @@ function UploadCard({
   onChange: () => void;
 }) {
   const [file, setFile] = useState<File | null>(null);
+  const [inputKey, setInputKey] = useState(0);
   const [declaredClass, setDeclaredClass] = useState("SERVICE_INVOICE");
   const [label, setLabel] = useState("");
   const [captureDate, setCaptureDate] = useState("");
@@ -1311,40 +1385,44 @@ function UploadCard({
   const [error, setError] = useState<unknown>(null);
 
   return (
-    <div className="card card-tight" style={{ border: "1.5px dashed var(--hairline)", boxShadow: "none" }}>
+    <div className="card card-tight card-dashed">
       <h3 style={{ marginBottom: 6 }}>
         {detail.state === "ADJUDICATED" ? "Add appeal evidence" : "Add evidence"}
       </h3>
-      <p className="muted" style={{ fontSize: 12.5 }}>
-        The class below is YOUR label — the panel judges from the content
-        what the document actually is, and a mislabel counts against the
-        case it was chosen to help. Files are typed by their bytes, never
-        their extension.
+      <p className="fine">
+        The document type is <em>your</em> label: the panel decides from the
+        content what the document actually is, and a wrong label counts
+        against the side that chose it. Files are identified by their
+        contents, never their extension.
       </p>
-      <div className="row" style={{ marginTop: 12, flexWrap: "wrap", alignItems: "start" }}>
-        <div className="field" style={{ flex: 1, minWidth: 180, marginBottom: 8 }}>
-          <label>File</label>
+      <div className="row form-row" style={{ marginTop: 14, flexWrap: "wrap", alignItems: "start" }}>
+        <div className="field" style={{ flex: 1, minWidth: 220, marginBottom: 8 }}>
+          <label htmlFor="upload-file">File</label>
           <input
+            key={inputKey}
+            id="upload-file"
             type="file"
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
           />
         </div>
-        <div className="field" style={{ minWidth: 210, marginBottom: 8 }}>
-          <label>Declared class</label>
+        <div className="field" style={{ minWidth: 220, marginBottom: 8 }}>
+          <label htmlFor="upload-class">Document type</label>
           <select
+            id="upload-class"
             value={declaredClass}
             onChange={(e) => setDeclaredClass(e.target.value)}
           >
-            {EVIDENCE_CLASSES.map((c) => (
-              <option key={c} value={c}>
-                {c.replaceAll("_", " ").toLowerCase()}
+            {UPLOAD_CLASSES.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
               </option>
             ))}
           </select>
         </div>
-        <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 8 }}>
-          <label>Label (optional)</label>
+        <div className="field" style={{ flex: 1, minWidth: 180, marginBottom: 8 }}>
+          <label htmlFor="upload-label">Label (optional)</label>
           <input
+            id="upload-label"
             type="text"
             maxLength={80}
             value={label}
@@ -1352,9 +1430,10 @@ function UploadCard({
             placeholder="March service invoice"
           />
         </div>
-        <div className="field" style={{ minWidth: 150, marginBottom: 8 }}>
-          <label>Document date</label>
+        <div className="field" style={{ minWidth: 160, marginBottom: 8 }}>
+          <label htmlFor="upload-date">Document date</label>
           <input
+            id="upload-date"
             type="date"
             value={captureDate}
             onChange={(e) => setCaptureDate(e.target.value)}
@@ -1364,6 +1443,7 @@ function UploadCard({
       <ErrorNotice error={error} />
       <button
         className="btn btn-primary"
+        style={{ marginTop: 6 }}
         disabled={!file || busy}
         onClick={async () => {
           if (!file) return;
@@ -1380,6 +1460,7 @@ function UploadCard({
               body: form,
             });
             setFile(null);
+            setInputKey((k) => k + 1);
             setLabel("");
             onChange();
           } catch (e) {

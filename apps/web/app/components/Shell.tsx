@@ -52,19 +52,26 @@ export function Shell({ children }: { children: ReactNode }) {
             </nav>
           ) : null}
           <div className="topbar-right">
-            <span className="netpill">GenLayer · Studio Next · 61997</span>
+            <span
+              className="netpill netpill-network"
+              title="GenLayer Studio Next · chain 61997"
+            >
+              <span className="live" aria-hidden />
+              GenLayer Studio Next
+            </span>
             {me === undefined ? null : me ? (
               <>
                 <span className="netpill" title={me.walletAddress}>
-                  {me.displayName
-                    ? `${me.displayName} · ${shortAddress(me.walletAddress)}`
-                    : shortAddress(me.walletAddress)}
+                  {me.displayName ? (
+                    <span className="who">{me.displayName}</span>
+                  ) : null}
+                  <span className="addr">{shortAddress(me.walletAddress)}</span>
                 </span>
                 <button className="btn btn-quiet" onClick={signOut}>
                   Sign out
                 </button>
               </>
-            ) : (
+            ) : pathname.startsWith("/auth") ? null : (
               <Link className="btn btn-ghost" href="/auth">
                 Connect wallet
               </Link>
@@ -74,14 +81,21 @@ export function Shell({ children }: { children: ReactNode }) {
       </header>
       <main className="shell">{children}</main>
       <footer className="footer">
-        <div className="shell spread" style={{ flexWrap: "wrap" }}>
+        <div className="shell spread" style={{ flexWrap: "wrap", rowGap: 8 }}>
           <span>
-            AutoCourt — verdicts derived in deterministic public code; no
-            party, including us, authors what the panel decides.
+            Verdicts are derived in deterministic public code. No party,
+            including us, authors what the panel decides.
           </span>
-          <span className="mono" style={{ fontSize: 12 }}>
-            adjudicated evidence is public, permanently — see Settings →
-            Privacy
+          <span>
+            Adjudicated evidence is public, permanently.
+            {me ? (
+              <>
+                {" "}
+                <Link href="/settings" className="link">
+                  Privacy settings
+                </Link>
+              </>
+            ) : null}
           </span>
         </div>
       </footer>

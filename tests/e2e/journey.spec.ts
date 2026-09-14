@@ -88,10 +88,10 @@ test("the seller-to-buyer journey holds end to end", async ({ browser }) => {
 
   // List the vehicle with two claims.
   await seller.goto("/vehicles/new");
-  await seller.getByPlaceholder("1M8GDM9AXKP042788").fill("1M8GDM9AXKP042788");
-  await seller.getByPlaceholder("Meridian").fill("Meridian");
-  await seller.getByPlaceholder("GT Wagon").fill("GT Wagon");
-  await seller.getByPlaceholder("2019").fill("2019");
+  await seller.getByPlaceholder("1HGCM82633A004352").fill("1HGCM82633A004352");
+  await seller.getByPlaceholder("Honda").fill("Honda");
+  await seller.getByPlaceholder("Accord").fill("Accord");
+  await seller.getByPlaceholder("2003").fill("2003");
   await seller.getByPlaceholder("87,432 miles").fill("87,432 miles");
   await seller.getByRole("button", { name: "Add claim" }).click();
   const selects = seller.locator("select");
@@ -114,7 +114,7 @@ test("the seller-to-buyer journey holds end to end", async ({ browser }) => {
 
   // The submit gate names the missing consent instead of failing silently.
   await expect(
-    seller.getByText(/still need the publicity consent/),
+    seller.getByText(/publicity consent/),
   ).toBeVisible();
 
   // ACTUALLY redact the card number before consent — afterwards it is
@@ -139,7 +139,7 @@ test("the seller-to-buyer journey holds end to end", async ({ browser }) => {
   expect(cardSpan.start).toBeGreaterThan(0);
   await seller.getByRole("button", { name: "Add span" }).click();
   await expect(
-    seller.getByText(`${cardSpan.start}–${cardSpan.end}`),
+    seller.locator(".redaction-span", { hasText: "card ending 4417" }),
   ).toBeVisible();
   await seller.getByRole("button", { name: /Apply \d+ redaction/ }).click();
   // The item reports itself redacted, and the card number is gone from
@@ -156,16 +156,16 @@ test("the seller-to-buyer journey holds end to end", async ({ browser }) => {
   await seller.locator('input[type="date"]').first().fill("2026-03-07");
   await seller.getByPlaceholder("odometer").fill("87432");
   await seller.getByPlaceholder("where in the document").fill("odometer line");
-  await seller.getByRole("button", { name: "Save typed rows" }).click();
-  await expect(seller.getByText("2026-03-07: 87,432 miles")).toBeVisible();
+  await seller.getByRole("button", { name: "Save readings" }).click();
+  await expect(seller.getByText("7 Mar 2026 · 87,432 mi")).toBeVisible();
 
   // Consent (the verbatim publicity statement gates the packet).
   await seller.getByRole("button", { name: "Consent for the packet" }).click();
   await expect(
-    seller.getByText(/Adjudicated evidence is public/),
+    seller.getByText(/Adjudicated evidence is public. Submitting/),
   ).toBeVisible();
   await seller.getByRole("checkbox").check();
-  await seller.getByRole("button", { name: /Consent E-001/ }).click();
+  await seller.getByRole("button", { name: /Consent to publish E-001/ }).click();
   await expect(seller.getByText("consent pending")).toHaveCount(0);
 
   // Share link — shown exactly once.
@@ -192,7 +192,7 @@ test("the seller-to-buyer journey holds end to end", async ({ browser }) => {
     .getByPlaceholder("odometer looks off against the history")
     .fill("history looks thin");
   await buyer.getByRole("button", { name: "Record the dispute" }).click();
-  await expect(buyer.getByText(/disputed by 1 party/)).toBeVisible();
+  await expect(buyer.getByText(/disputed by 1 party/i)).toBeVisible();
 
   await buyer.setInputFiles('input[type="file"]', historyPath);
   await buyer.locator("select").last().selectOption("VEHICLE_HISTORY_RECORD");
@@ -200,7 +200,7 @@ test("the seller-to-buyer journey holds end to end", async ({ browser }) => {
   await expect(buyer.getByText("E-002")).toBeVisible();
   await buyer.getByRole("button", { name: "Consent for the packet" }).click();
   await buyer.getByRole("checkbox").last().check();
-  await buyer.getByRole("button", { name: /Consent E-002/ }).click();
+  await buyer.getByRole("button", { name: /Consent to publish E-002/ }).click();
   // Consent now asks the wallet to attest the final bytes before it
   // posts. Wait on the ABSENCE of any pending item: "consented" alone is
   // ambiguous here, because the seller's E-001 badge is visible to the
@@ -229,7 +229,7 @@ test("the seller-to-buyer journey holds end to end", async ({ browser }) => {
     await revokeButtons.first().click();
     await seller.waitForTimeout(400);
   }
-  await expect(seller.getByText(/revoked/).first()).toBeVisible();
+  await expect(seller.getByText(/revoked/i).first()).toBeVisible();
   const strangerCtx = await browser.newContext();
   const stranger = await strangerCtx.newPage();
   await connectWallet(stranger,

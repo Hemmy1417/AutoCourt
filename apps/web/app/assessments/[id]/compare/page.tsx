@@ -1,10 +1,23 @@
 "use client";
 
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import {
+  claimTypeLabel,
+  recordNumber,
+  severityLabel,
+  sufficiencyText,
+} from "../../../../lib/present";
 import { api } from "../../../components/api";
-import { ErrorNotice, Spinner, VerdictChip } from "../../../components/bits";
+import {
+  Empty,
+  IdTag,
+  Loading,
+  PageError,
+  VerdictChip,
+} from "../../../components/bits";
 
 interface Finding {
   claim_id: string;
@@ -33,6 +46,9 @@ interface RunPayload {
 
 interface Detail {
   vehicle: {
+    year: number;
+    make: string;
+    model: string;
     claims: { claimId: string; type: string; declaredValue: string }[];
   };
   runs: { runNumber: number; status: string }[];
@@ -43,6 +59,7 @@ export default function Compare() {
   const { id } = useParams<{ id: string }>();
   const [data, setData] = useState<RunPayload | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
+  const [noRun, setNoRun] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
   useEffect(() => {
@@ -59,6 +76,8 @@ export default function Compare() {
               `/api/assessments/${id}/runs/${verdict.verdict.standing_run}`,
             ),
           );
+        } else {
+          setNoRun(true);
         }
       } catch (e) {
         setError(e);
@@ -66,17 +85,16 @@ export default function Compare() {
     })();
   }, [id]);
 
-  if (error) return <ErrorNotice error={error} />;
-  if (!detail)
-    return (
-      <div className="row" style={{ justifyContent: "center", padding: 60 }}>
-        <Spinner />
-      </div>
-    );
+  if (error) return <PageError error={error} />;
+  if (!detail || (!data && !noRun)) return <Loading />;
   if (!data)
     return (
-      <section className="section">
-        <div className="empty">No standing run to compare yet.</div>
+      <section className="section" style={{ maxWidth: 680, margin: "0 auto" }}>
+        <Empty>
+          There is no verdict to compare yet. Once the panel has judged this
+          record, every claim&apos;s supporting and contradicting evidence
+          appears here, quoted.
+        </Empty>
       </section>
     );
 
@@ -85,12 +103,22 @@ export default function Compare() {
   );
 
   return (
-    <section className="section" style={{ maxWidth: 900, margin: "0 auto" }}>
-      <h2 style={{ marginBottom: 4 }}>Claim-by-claim evidence</h2>
-      <p className="muted small" style={{ marginBottom: 22 }}>
-        Run {data.run.run} · every non-absent finding below carries a quote
-        that grounds, word for word, in the recorded text — a finding whose
-        quotes failed to ground was downgraded before anything read it.
+    <section className="section" style={{ maxWidth: 920, margin: "0 auto" }}>
+      <p className="eyebrow">
+        {[recordNumber(data.onChainId), `Run ${data.run.run}`]
+          .filter(Boolean)
+          .join(" · ")}
+      </p>
+      <div className="spread" style={{ flexWrap: "wrap", marginTop: 6 }}>
+        <h2>Claim-by-claim evidence</h2>
+        <Link className="btn btn-ghost" href={`/assessments/${id}/report`}>
+          Back to the report
+        </Link>
+      </div>
+      <p className="muted" style={{ marginTop: 8, marginBottom: 22 }}>
+        Every finding below carries a quote that appears word for word in the
+        recorded evidence. A finding whose quotes did not match was
+        downgraded before anything read it.
       </p>
       <div className="stack" style={{ gap: 16 }}>
         {data.run.report.claims.map((c) => {
@@ -99,28 +127,22 @@ export default function Compare() {
           const contradicted = findings.filter(
             (f) => f.status === "CONTRADICTED",
           );
+          const sufficiency = data.run.sufficiency[c.claim_id];
           return (
-            <div key={c.claim_id} className="card card-tight">
-              <div className="spread" style={{ flexWrap: "wrap" }}>
+            <div key={c.claim_id} className="card">
+              <div className="spread" style={{ flexWrap: "wrap", alignItems: "flex-start" }}>
                 <div>
-                  <div className="row">
-                    <span className="tag">{c.claim_id}</span>
-                    <b>{c.claim_type.replaceAll("_", " ")}</b>
+                  <div className="row" style={{ gap: 8 }}>
+                    <IdTag>{c.claim_id}</IdTag>
+                    <h3>{claimTypeLabel(c.claim_type)}</h3>
                   </div>
-                  <p className="small muted" style={{ marginTop: 4 }}>
-                    seller declares: “{declaredBy.get(c.claim_id)}”
+                  <p className="small muted" style={{ marginTop: 6 }}>
+                    Seller declares: “{declaredBy.get(c.claim_id)}”
                   </p>
                 </div>
                 <VerdictChip verdict={c.verdict} />
               </div>
-              <div
-                className="grid"
-                style={{
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 14,
-                  marginTop: 14,
-                }}
-              >
+              <div className="columns-2" style={{ marginTop: 16 }}>
                 <FindingColumn
                   title="Supports the claim"
                   tone="ok"
@@ -132,9 +154,11 @@ export default function Compare() {
                   findings={contradicted}
                 />
               </div>
-              <p className="muted" style={{ fontSize: 12, marginTop: 10 }}>
-                record: {String(data.run.sufficiency[c.claim_id] ?? "").toLowerCase()}
-              </p>
+              {sufficiency ? (
+                <p className="fine" style={{ marginTop: 12 }}>
+                  {sufficiencyText(sufficiency)}.
+                </p>
+              ) : null}
             </div>
           );
         })}
@@ -157,7 +181,7 @@ function FindingColumn({
       style={{
         background: tone === "ok" ? "var(--ok-soft)" : "var(--bad-soft)",
         borderRadius: 12,
-        padding: 12,
+        padding: 14,
       }}
     >
       <p
@@ -170,34 +194,22 @@ function FindingColumn({
         {title}
       </p>
       {findings.length === 0 ? (
-        <p className="muted" style={{ fontSize: 12.5, marginTop: 6 }}>
+        <p className="fine" style={{ marginTop: 6 }}>
           Nothing on the record {tone === "ok" ? "supports" : "contradicts"}{" "}
-          this claim — an empty column is an answer, not an omission.
+          this claim. An empty column is an answer, not an omission.
         </p>
       ) : (
-        <div className="stack" style={{ gap: 8, marginTop: 8 }}>
+        <div className="stack" style={{ gap: 10, marginTop: 10 }}>
           {findings.map((f, i) => (
             <div key={i}>
-              <div className="row">
-                <span className="tag">{f.evidence_id}</span>
-                <span className="muted" style={{ fontSize: 11.5 }}>
-                  severity {f.severity.toLowerCase()}
-                </span>
+              <div className="row" style={{ gap: 8 }}>
+                <IdTag>{f.evidence_id}</IdTag>
+                <span className="fine">{severityLabel(f.severity)} severity</span>
               </div>
               {f.quotes.map((q, j) => (
-                <p
-                  key={j}
-                  className="mono"
-                  style={{
-                    fontSize: 12,
-                    marginTop: 5,
-                    background: "rgba(255,255,255,0.75)",
-                    borderRadius: 8,
-                    padding: "7px 9px",
-                  }}
-                >
+                <blockquote key={j} className="evidence-quote">
                   “{q.text}”
-                </p>
+                </blockquote>
               ))}
             </div>
           ))}

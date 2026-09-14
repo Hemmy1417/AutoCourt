@@ -7,6 +7,7 @@ import {
   errorResponse,
   tooMany,
 } from "../../../../../lib/errors.js";
+import { formatBytes, statePhrase } from "../../../../../lib/present.js";
 import { allowBoth } from "../../../../../lib/ratelimit.js";
 import {
   intakeEvidence,
@@ -25,7 +26,7 @@ export async function POST(
     const { assessment, role } = await requireAccess(id, user.id);
     if (assessment.state !== "DRAFT" && assessment.state !== "ADJUDICATED") {
       throw conflict(
-        `evidence cannot be added while the assessment is ${assessment.state}`,
+        `evidence cannot be added while this record is ${statePhrase(assessment.state)}`,
       );
     }
     const form = await req.formData().catch(() => null);
@@ -33,7 +34,7 @@ export async function POST(
     const file = form.get("file");
     if (!(file instanceof File)) throw badRequest("a file part is required");
     if (file.size > MAX_UPLOAD_BYTES)
-      throw badRequest(`file exceeds ${MAX_UPLOAD_BYTES} bytes`);
+      throw badRequest(`files can be at most ${formatBytes(MAX_UPLOAD_BYTES)}`);
     const declaredClass = String(form.get("declaredClass") ?? "");
     if (!EVIDENCE_CLASSES.includes(declaredClass as never))
       throw badRequest("declaredClass outside the taxonomy");

@@ -3,6 +3,9 @@ import { prisma } from "@autocourt/db";
 import { requireUser } from "../../../lib/auth.js";
 import { errorResponse } from "../../../lib/errors.js";
 
+/** What a person needs to recognise which record a row belongs to. */
+const VEHICLE = { select: { year: true, make: true, model: true } } as const;
+
 /** Screen 13's backing: profile, sessions, evidence visibility, links. */
 export async function GET(req: Request): Promise<Response> {
   try {
@@ -26,6 +29,7 @@ export async function GET(req: Request): Promise<Response> {
           redactionStatus: true,
           consentedAt: true,
           onChainTxHash: true,
+          assessment: { select: { onChainId: true, vehicle: VEHICLE } },
         },
       }),
       prisma.shareLink.findMany({
@@ -37,6 +41,7 @@ export async function GET(req: Request): Promise<Response> {
           state: true,
           expiresAt: true,
           createdAt: true,
+          assessment: { select: { onChainId: true, vehicle: VEHICLE } },
         },
       }),
     ]);

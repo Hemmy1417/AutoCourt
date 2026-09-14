@@ -49,7 +49,7 @@ export async function POST(
     const { assessment, role } = await requireAccess(id, user.id);
     if (assessment.state !== "DRAFT") {
       throw conflict(
-        `independent sources enter before submission (state: ${assessment.state})`,
+        "independent sources can only be added before the packet is submitted",
       );
     }
 
@@ -66,7 +66,7 @@ export async function POST(
     if (!allow.some((h) => host === h || host.endsWith(`.${h}`))) {
       throw badRequest(
         allow.length === 0
-          ? "this deployment has no independent sources allowlisted, so VERIFIED is not reachable here"
+          ? "this deployment has no independent sources allowlisted, so a claim cannot be verified here"
           : `${host} is not an allowlisted independent source`,
         { allowlist: allow },
       );
@@ -103,7 +103,7 @@ export async function POST(
       });
       if (fresh.state !== "DRAFT") {
         throw conflict(
-          `independent sources enter before submission (state: ${fresh.state})`,
+          "independent sources can only be added before the packet is submitted",
         );
       }
       // One reading per source. The contract fetches the page itself; a

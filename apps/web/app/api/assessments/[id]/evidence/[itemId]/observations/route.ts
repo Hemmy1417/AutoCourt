@@ -35,11 +35,11 @@ export async function POST(
     const body = await req.json().catch(() => null);
     const rows = Array.isArray(body?.rows) ? body.rows : null;
     if (!rows || rows.length === 0 || rows.length > 12)
-      throw badRequest("1-12 observation rows");
+      throw badRequest("add between 1 and 12 readings");
     const cleaned = rows.map((r: Record<string, unknown>, i: number) => {
       const docDate = String(r.docDate ?? "");
       if (!/^\d{4}-\d{2}-\d{2}$/.test(docDate))
-        throw badRequest(`row ${i + 1}: docDate must be YYYY-MM-DD`);
+        throw badRequest(`reading ${i + 1}: the date is not a valid calendar date`);
       const out: {
         evidenceItemId: string;
         docDate: string;
@@ -55,10 +55,10 @@ export async function POST(
       if (r.odometerReading !== undefined && r.odometerReading !== null && r.odometerReading !== "") {
         const reading = Number(r.odometerReading);
         if (!Number.isInteger(reading) || reading < 0 || reading > 3_000_000)
-          throw badRequest(`row ${i + 1}: odometer reading out of range`);
+          throw badRequest(`reading ${i + 1}: the odometer reading is out of range`);
         const unit = String(r.odometerUnit ?? "MILES").toUpperCase();
         if (unit !== "MILES" && unit !== "KM")
-          throw badRequest(`row ${i + 1}: unit must be MILES or KM`);
+          throw badRequest(`reading ${i + 1}: the unit must be miles or kilometres`);
         out.odometerReading = reading;
         out.odometerUnit = unit;
       }

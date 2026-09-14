@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { formatDate, recordNumber, vehicleTitle } from "../../lib/present";
 import { api } from "../components/api";
 import { ErrorNotice, Spinner, StateChip } from "../components/bits";
 
@@ -82,19 +83,28 @@ export default function Dashboard() {
       ) : (
         <div className="grid grid-2">
           {rows.map((a) => (
-            <Link key={a.id} href={`/assessments/${a.id}`} className="card">
-              <div className="spread">
-                <h3>
-                  {a.vehicle.year} {a.vehicle.make} {a.vehicle.model}
-                </h3>
+            <Link key={a.id} href={`/assessments/${a.id}`} className="card card-link">
+              <div className="spread" style={{ alignItems: "flex-start" }}>
+                <div>
+                  <h3>{vehicleTitle(a.vehicle)}</h3>
+                  <p className="fine" style={{ marginTop: 4 }}>
+                    {a.myRole === "SELLER" ? "You are selling" : "Shared with you"}
+                    {" · "}opened {formatDate(a.createdAt)}
+                  </p>
+                </div>
                 <StateChip state={a.state} />
               </div>
-              <div className="row" style={{ marginTop: 10, flexWrap: "wrap" }}>
-                <span className="tag">{a.vehicle.vin}</span>
+              <div className="row" style={{ marginTop: 14, flexWrap: "wrap", gap: 8 }}>
                 <span className="tag">
-                  {a.myRole === "SELLER" ? "you are selling" : "shared with you"}
+                  VIN <span className="tag-mono">{a.vehicle.vin}</span>
                 </span>
-                {a.onChainId ? <span className="tag">{a.onChainId}</span> : null}
+                {a.onChainId ? (
+                  <span className="tag" title={a.onChainId}>
+                    {recordNumber(a.onChainId)}
+                  </span>
+                ) : (
+                  <span className="tag">Not yet on chain</span>
+                )}
               </div>
             </Link>
           ))}

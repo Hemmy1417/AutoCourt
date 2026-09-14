@@ -5,7 +5,10 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { api, ApiFailure } from "../../components/api";
-import { ErrorNotice, Spinner } from "../../components/bits";
+import {
+  PageError,
+  Spinner,
+} from "../../components/bits";
 
 // Screen 12 — the shareable assessment view: redeeming the link grants
 // buyer access, then lands on the same derived report every party sees.
@@ -41,7 +44,7 @@ export default function ShareRedeem() {
     return (
       <div className="row" style={{ justifyContent: "center", padding: 80 }}>
         <Spinner />
-        <span className="muted">opening the shared assessment…</span>
+        <span className="muted">Opening the shared assessment…</span>
       </div>
     );
 
@@ -68,15 +71,19 @@ export default function ShareRedeem() {
 
   if (state === "gone")
     return (
-      <section className="section">
-        <div className="empty">
-          This share link is no longer valid — it was revoked or its
-          wall-clock window expired. Ask the seller for a fresh one.
-          Anything already adjudicated remains public on the chain
-          regardless of this link.
+      <section className="section" style={{ maxWidth: 560, margin: "0 auto" }}>
+        <div className="card" style={{ textAlign: "center", padding: 34 }}>
+          <h2>This link no longer works</h2>
+          <p className="muted" style={{ marginTop: 10 }}>
+            The seller revoked it, or it expired. Ask them for a fresh one.
+          </p>
+          <p className="fine" style={{ marginTop: 12 }}>
+            Anything already adjudicated stays public on the chain, whatever
+            happens to this link.
+          </p>
         </div>
       </section>
     );
 
-  return <ErrorNotice error={error} />;
+  return <PageError error={error} />;
 }

@@ -23,18 +23,18 @@ export async function POST(req: Request): Promise<Response> {
     const model = String(body?.model ?? "").trim();
     const year = Number(body?.year);
     if (!make || make.length > 60 || !model || model.length > 60)
-      throw badRequest("make and model are required (max 60 chars)");
+      throw badRequest("make and model are both required, up to 60 characters each");
     if (!Number.isInteger(year) || year < 1950 || year > 2035)
-      throw badRequest("year must be 1950-2035");
+      throw badRequest("the year must be between 1950 and 2035");
     const claims = Array.isArray(body?.claims) ? body.claims : [];
     if (claims.length < 1 || claims.length > 12)
-      throw badRequest("declare 1-12 claims");
+      throw badRequest("list between 1 and 12 claims");
     for (const c of claims) {
       if (!CLAIM_TYPES.includes(String(c?.type) as never))
         throw badRequest(`unknown claim type: ${String(c?.type)}`);
       const v = String(c?.declaredValue ?? "").trim();
       if (!v || v.length > 160)
-        throw badRequest("each claim needs a declared value (max 160 chars)");
+        throw badRequest("each claim needs a declared value of up to 160 characters");
     }
     const vehicle = await prisma.vehicle.create({
       data: {
@@ -84,7 +84,13 @@ export async function GET(req: Request): Promise<Response> {
       },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: limit + 1,
-      include: { claims: true, assessments: { select: { id: true, state: true } } },
+      include: {
+        claims: true,
+        assessments: {
+          select: { id: true, state: true, onChainId: true, createdAt: true },
+          orderBy: { createdAt: "desc" },
+        },
+      },
     });
     const page = rows.slice(0, limit);
     const last = page[page.length - 1];
