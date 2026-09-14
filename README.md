@@ -244,8 +244,14 @@ npx prisma generate --schema packages/db/prisma/schema.prisma
 node scripts/dev-db.mjs     # real PostgreSQL 16, no Docker needed (keep running)
 npx prisma migrate deploy --schema packages/db/prisma/schema.prisma
 npx next dev apps/web       # the 13 screens
-node apps/worker/src/index.ts   # the job mover (or a cron on /api/jobs/drain)
+npm run worker              # the job mover (or a cron on /api/jobs/drain)
 ```
+
+`npm run worker` compiles first (`tsc -b`) and then runs the built
+output. Every workspace package resolves to `dist/`, so plain Node cannot
+be pointed at the TypeScript source — and `tsc -b` decides what to
+rebuild from `tsconfig.tsbuildinfo`, not from whether `dist/` is actually
+there, so never skip the compile step.
 
 `scripts/dev-db.mjs` serves a real PostgreSQL 16 on `localhost:5455`
 from binaries the `embedded-postgres` dev dependency ships — nothing to
@@ -269,11 +275,18 @@ one global.
 | suite | count | what it proves |
 |---|---|---|
 | `pytest tests/direct` | 110 | the whole contract against a runtime-strict stub: floors, walls, appeals, forged-leader replays (a fabricated-but-consistent dossier is refused because its quotes do not ground), and every equivalence lesson pinned in both directions — decision cut, sufficiency materiality, citation materiality, explanation shadings |
-| `npx vitest run` | 48 | VIN/OBD-II/mileage code, evidence pipeline honesty, the packet builder (with a golden pinning TS `manifestRoot` byte-equal to the contract's), S40 act availability as a pure function |
+| `npx vitest run` | 58 | VIN/OBD-II/mileage code, evidence pipeline honesty, the packet builder (with a golden pinning TS `manifestRoot` byte-equal to the contract's), S40 act availability as a pure function, and the rule that the run limit is read from `get_config()` rather than remembered |
 | `npx playwright test` | 1 journey | the complete seller-to-buyer path in a real browser against a real server and Postgres: landing → two wallets signing in with real EIP-191 signatures → list → upload (fixture bytes) → **redact a card number and prove it is gone from the bytes that will be published** → typed rows → the consent gate refusing an unconsented packet, now signing the attestation → share → buyer disputes and counters → submit → the revoked link answers with its reason. Runs on an isolated database so its fixtures never ride the local drain onto the chain |
-| `CHAIN_E2E=1 npx playwright test` | + 1 verdict | the post-verdict screens the journey cannot reach, rendered against a REAL adjudicated record (`ac-000003`, two runs and an appeal, produced by the arc): the identity row, the report's run-of-total, code-derived confidence and non-consensus prose label, Provenance, the intake receipt read from the contract's own manifest, and the appeal gate. Skipped without the flag, because it reads a live contract || `node scripts/seam-pass.mjs` | live | the app→chain seam: the same API the browser drives, then the drain loop carrying every queued write to the deployment of record — on-chain id linked, evidence landed, dispute recorded, sealed, and the intake receipt confirming every item inside the on-chain manifest |
+| `CHAIN_E2E=1 npx playwright test` | + 1 verdict | the post-verdict screens the journey cannot reach, rendered against a REAL adjudicated record (`ac-000003`, two runs and an appeal, produced by the arc): the identity row, the report's run-of-total, code-derived confidence and non-consensus prose label, Provenance, the intake receipt read from the contract's own manifest, and the appeal gate. Skipped without the flag, because it reads a live contract |
+| `node scripts/seam-pass.mjs` | live | the app→chain seam: the same API the browser drives, then the drain loop carrying every queued write to the deployment of record — on-chain id linked, evidence landed, dispute recorded, sealed, and the intake receipt confirming every item inside the on-chain manifest |
 | `node scripts/appeal-pass.mjs` | live | the APPEAL path through the product, which the browser tests structurally cannot reach: a full cycle of submit → adjudicate → post-verdict counter-evidence → appeal → readjudicate. Ten assertions, including that run 1 stays byte-identical (an appeal adds a run, it never edits one) and that the Appeal row is linked to the run it produced rather than orphaned |
-| `node scripts/anchor-app-demo.mjs` | live | the independent-source lane from the app: a party-controlled source refused by the allowlist, an allowlisted one accepted and EXTRACTED once every validator agreed || `genvm-lint` | clean | AST-level GenVM validity |
+| `node scripts/anchor-app-demo.mjs` | live | the independent-source lane from the app: a party-controlled source refused by the allowlist, an allowlisted one accepted and EXTRACTED once every validator agreed |
+| `node scripts/prove-verified.mjs` | live | the two outcomes no live round had ever produced: `ac-000010` reaching **`VERIFIED` / HIGH** on `INDEPENDENT` corroboration (the flagship verdict, and the whole point of the anchor lane), and `ac-000012` raising `diagnostic_concern_supported` — a stored trouble code is never an auto-failure, so the flag needs the panel to find symptom support in the record |
+| `node scripts/prove-identity-cap.mjs` | live | the registry identity check as a **controlled pair**: two records whose evidence is byte-identical apart from the VIN. `ac-000015` (undecodable) reached `VERIFIED` / HIGH; `ac-000016`, whose VIN decodes at the federal registry to a 1989 bus while the listing claims a 2019 wagon, reached `CONFLICTING_EVIDENCE` / LOW at `MATERIAL_CONCERN`. The seller supplied every byte of both; the one fact no party supplied moved the outcome |
+| `node scripts/prove-runs-cap.mjs` | live | a record driven to the contract's 4-run limit, then refused in both places it has to be: the app answers 409 before writing anything, and the contract refuses a `readjudicate` called directly with an operator key, in its own words |
+| `node scripts/prove-rejected-run.mjs` | live | `REJECTED` — a status the chain can never write, because the contract records only judgments that survived consensus. Produced from a refusal the contract issues on its own (two simultaneous adjudication requests, as a double click makes), never by writing the row |
+| `node scripts/prove-app-paths.mjs` | live | the app-side paths that were only ever unit-tested: an image with no OCR recorded `UNEXTRACTED` with its type read from the bytes, rate limiting on a real request, share-link expiry by wall clock answering 410, and the compare and report screens rendering |
+| `genvm-lint` | clean | AST-level GenVM validity |
 
 ## The docs
 
