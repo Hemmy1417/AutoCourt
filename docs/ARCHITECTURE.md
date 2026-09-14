@@ -1,4 +1,4 @@
-# AutoCourt — founding architecture decisions (v2)
+# AutoCourt — architecture
 
 Product: evidence-based used-vehicle verification. A seller lists a vehicle
 and declares claims; evidence accumulates from both sides; a GenLayer
@@ -10,16 +10,40 @@ Every decision below is downstream of [STANDARDS-MAP.md](STANDARDS-MAP.md).
 Read that first; this file says *what* is built, that one says *why it must
 be built that way*.
 
-**v2 provenance.** Before any code, a four-lens adversarial design review
-(evidence model, trust story, contract shape, product scope) was run against
-the v1 of this document. It returned 38 findings, six of them blocking-class;
-the raw output is preserved verbatim in
-[design-review-findings.md](design-review-findings.md). Every blocking and
-high finding is resolved in this v2, and the material changes are: the
-amortized evidence-entry model (§3), the dual-hash manifest (§3.4), the
-corroboration ladder moved into the contract (§4.4), the verdict-enum
-partition (§6), CredenceLend-style quote grounding with drop-and-downgrade
-(§4.5), and the explicit publicity/consent boundary (§8.2).
+## The shape today: a dApp (since 14 Sep 2026)
+
+AutoCourt was first built full stack: a Next.js app with API routes,
+PostgreSQL, a job queue and a worker that sent every transaction from an
+operator's wallet. On 14 Sep the Vercel build of that monorepo failed, and the
+user directed the build into the shape of their Verda repository: one web app
+that talks to the contract directly. Nothing about the contract changed, and
+nothing had to: it never checked for an operator, so the same deployment of
+record, with every record and proof on it, serves the new app.
+
+| | |
+|---|---|
+| Layout | `contracts/` (the contract), `tests/direct/` (its suite), `web/` (one Next.js app with its own lockfile and scripts), `docs/`, `fixtures/` |
+| Reads | straight from the visitor's browser to Studio Next through genlayer-js, typed in `web/lib/read.ts`. Contract reads share a 30-per-minute bucket per IP (measured, with the RPC's CORS headers present on refusals too), so the layer paces a tab at 20 a minute, caches, and retries a rate-limit refusal. There is no server proxy, deliberately: a proxy would pool every visitor into one budget |
+| Writes | signed by the connected wallet (EIP-6963 discovery, silent reconnect) and sent by `web/lib/tx.ts`: size the fee deposit, sign, then confirm by reading the record back, and say "finalized" only when the transaction reports it. A deterministic write is simulated first, so a refusal arrives in the contract's words before anything is signed; a write whose method fetches the web or runs the panel is priced with the plain estimate |
+| Fees | test GEN on Studio Next. The wallet menu requests it from the network's faucet (`sim_fundAccount`) for the connected address |
+| Evidence | read, fingerprinted, redacted and signed in the uploader's browser (`web/lib/evidence`). The original file never leaves it; the reviewed text, both hashes, typed readings and the uploader's signature enter the record in one write, the moment the uploader publishes |
+| Independent sources | the browser commits the fingerprint of the text GenVM's webdriver will render (`web/lib/evidence/anchor.ts`), and every validator fetches the page itself |
+| State | the contract's. No database, no sessions, no queue, no stored files, no secrets on any server |
+| Deployment | Vercel, root directory `web`, no environment variables required (the deployment of record is the default; `NEXT_PUBLIC_*` variables override it) |
+
+What this removed: the operator. With it went the operator's testimony about
+extraction (the uploader now extracts and signs their own text), the job
+queue's failure and retry machinery (each write is one signed transaction with
+a visible lifecycle), share links and sessions (a record is public; a wallet
+is the identity), and the private pre-submission draft (an item is public the
+moment its uploader publishes it, and the publish step says so). What it
+exposed, honestly: the contract's writes are open to any wallet, which the
+operator used to hide; [THREAT-MODEL.md](THREAT-MODEL.md) states what that
+allows.
+
+The sections below are the founding decisions. The contract design (§1, §3.2
+to §3.5, §4, §6) is exactly what is deployed. Where a section described the
+full-stack app, it now describes the dApp, and says what it replaced.
 
 ## 0. Scope ruling — the brief's two halves
 
@@ -35,6 +59,10 @@ scope. Ruling, recorded so it is a decision and not an accident:
   finality language, freeze rule. Those sections are applied to
   `contracts/autocourt_assessment.py` exactly as if it were a standalone
   submission.
+
+On 14 Sep 2026 the user re-ruled the product half's delivery shape: one web
+app that talks to the contract directly, like their Verda repository, in
+place of the full-stack backend. The contract discipline above is unchanged.
 
 ## 1. Network and chain facts
 
@@ -56,60 +84,27 @@ assumed anywhere in this design (§3.2, §4.6).
 
 ## 2. Stack
 
-- **Monorepo, npm workspaces.** `apps/web` (Next.js App Router, TypeScript —
-  UI **and** API route handlers), `apps/worker` (Node entry point that drains
-  the job queue in local/long-lived deployments), `packages/*` for everything
-  either consumes: `shared-types`, `validation`, `evidence`,
-  `genlayer-client`, `db`. One lockfile, one `tsc`, one test runner (vitest)
-  for TS; pytest for the contract.
-- **PostgreSQL + Prisma.** `infrastructure/docker/docker-compose.yml` runs
-  Postgres 16 locally; `DATABASE_URL` in env. Migrations committed.
-- **Evidence files** go through a storage adapter (`packages/evidence`):
-  `LocalDiskStorage` in dev (`var/evidence/`, gitignored), interface-shaped
-  so an S3-compatible store slots in without touching the domain. Files are
-  hashed (sha256) at upload; the stored name is derived from the hash, never
-  from the upload filename. Every file's type is established by magic-byte
-  sniffing, never by extension or declared MIME. Extracted evidence text is
-  rendered exclusively as plain text (it is attacker-authored). Antivirus
-  scanning is **not** performed; that is a stated limitation in the threat
-  model, not implied coverage.
-- **Extraction** is adapter-shaped too: PDF text extraction and plain text
-  are real; OCR ships as an interface with a null default that records
-  `extraction_status = UNAVAILABLE` — an image (or video) without extraction
-  is *unextracted evidence the panel is told about*, never silently dropped
-  and never fabricated (brief §16: "evidence is never silently discarded").
-  The extractor carries a **version string**; that version is committed into
-  the on-chain manifest per item (§3.4), and `scripts/verify-extraction`
-  recomputes any item's normalized-text hash from its original so a third
-  party can check the pipeline after the fact.
-- **Auth**: wallet-based, and only wallet-based (user decision, 13 Sep).
-  The account IS an address: sign-in is an EIP-191 `personal_sign` over a
-  server-issued short-lived nonce (no transaction, no fee), sessions are
-  signed HttpOnly cookies backed by DB rows. The wallet address is also
-  the on-chain account string — `uploader_account`, dispute stakes and
-  appellants are all addresses, so attribution on the record reads
-  naturally against the chain. Roles stay contextual: a user is a seller
-  on vehicles they created and a buyer on assessments shared with them.
-  **Identity is still self-attested** — anyone can mint wallets — and the
-  corroboration ladder (§4.4) is designed so that this buys them nothing
-  that matters: same-account items never corroborate, and opposing-role
-  uploads can never lift a seller-favoring verdict.
-- **Background work**: assessment jobs are DB rows with a **lease**
-  (`locked_until`, bounded retries). `packages/worker-core` exposes
-  `runPendingJobs()`; `apps/worker` loops it in the supported long-lived
-  deployment; in a serverless deployment the **named mover is a platform cron
-  (e.g. Vercel cron) hitting the authenticated drain route on a fixed
-  cadence** — the lease guarantees a dead invocation cannot strand a job in
-  `PROCESSING`. The GenLayer transaction is submitted once and then
-  *polled* — a crash between submit and record is recovered by re-reading
-  the chain, never by resubmitting blind (a lost response is not a refusal).
-- **API discipline** (brief §11/§15): deterministic token-bucket rate
-  limiting per session **and** per IP on the upload and assessment-trigger
-  routes; cursor pagination on every list endpoint; one typed error envelope
-  `{code, message, details}` used by every route — the same envelope carries
-  the contract's verbatim refusal sentence when a write is refused (§7 of the
-  standards map); a minimal structured request-log hook (route, status,
-  duration, request id) as the observability seam.
+*Rewritten 14 Sep: the monorepo, PostgreSQL, the storage adapter, sessions and
+the job queue are gone (see "The shape today").* What carried over unchanged,
+now in `web/lib`:
+
+- **Magic-byte sniffing.** A file's type is established from its bytes,
+  never its extension or declared MIME (`evidence/sniff.ts`).
+- **Honest extraction.** Plain text and PDFs with embedded text are
+  extracted; anything else enters as a fingerprint with no text, which the
+  panel is told about, never silently dropped and never fabricated (brief
+  §16). The extractor carries a version string that the on-chain manifest
+  commits per item (§3.4). Extracted text is rendered as plain text only.
+- **Wallet-only identity.** The account IS an address. It is the seller of
+  record, the uploader on every item it signs, and the disputer on every
+  dispute it sends. Identity is self-attested (anyone can mint wallets), and
+  the corroboration ladder (§4.4) is designed so that buys nothing that
+  matters.
+- **Validation in code.** VIN format and check digit, OBD-II code shape and
+  mileage parsing (`validation/`), each with unit tests.
+- **Acts as a pure function.** What a visitor may do to a record is computed
+  from the record, the contract's published limits and the connected account
+  (`acts.ts`); a blocked act shows its reason in words (S40).
 
 ## 3. Evidence: how bytes enter the record
 
@@ -121,18 +116,19 @@ leader-private fetch (S39). Three lanes:
 ### 3.1 Uploaded evidence (the default lane)
 
 ```
-upload → magic-byte type check → sha256(original) → store original
+in the uploader's browser:
+  choose file → magic-byte type check → sha256(original)
       → extract text (versioned extractor) → normalize → redact (§8.2)
-      → sha256(normalized_text) → EvidenceItem row
-      → submit_evidence_text(...) on-chain, one write per item
+      → sha256(normalized_text) → uploader signs both hashes (EIP-191)
+      → submit_evidence_text(...) from the uploader's wallet, one write per item
 ```
 
 Each `submit_evidence_text` write carries one item: evidence id, declared
 type (disclosed as the uploader's claim — S31), uploader account id and
 role, capture/upload timestamps, MIME class, extraction status, **both
 hashes** (`file_sha256`, `text_sha256`), extractor version, the bounded
-normalized text (≤ 6,000 chars), and that item's **typed observation rows**
-(§3.3). The whole JSON argument stays ≤ 8,000 chars — the envelope sibling
+normalized text (≤ 6,000 chars), that item's **typed observation rows**
+(§3.3), and the uploader's signature over both hashes. The whole JSON argument stays ≤ 8,000 chars — the envelope sibling
 builds proved live. The contract recomputes `text_sha256` over the supplied
 text and refuses a mismatch, so the hash is bound to the bytes **at entry**,
 by every validator, because the bytes are calldata (S39 satisfied
@@ -160,7 +156,7 @@ conflicts, duplicate hashes, VIN echoes) and ship them as packet facts.
 That made a decisive field an unverified app assertion (S7). v2 inverts it:
 the packet carries only **typed observation rows** — `(evidence_id,
 doc_date, odometer_reading, source_field)` and normalized OBD-II codes
-(format-checked `[PBCU]\d{4}`, deduplicated, in `packages/validation` with
+(format-checked `[PBCU]\d{4}`, deduplicated, in `web/lib/validation` with
 its own unit tests) — and the **contract recomputes** mileage-sequence
 conflicts, duplicate-hash detection, and VIN-echo mismatches from those rows
 in deterministic code every validator runs. A reading that exists only
@@ -188,7 +184,7 @@ altered-re-extraction attack unrepresentable rather than merely detectable.
 The brief's evidence taxonomy includes "external source result", and the
 corroboration ladder (§4.4) reserves the `VERIFIED` ceiling for evidence
 integrity-bound to a source neither party controls. That binding cannot be
-app-asserted (the operator would be stamping its own labels), so it is a
+party-asserted (an uploader would be stamping its own labels), so it is a
 distinct entry lane with a **narrow, every-validator fetch at entry**:
 
 - `submit_anchor_item(assessment_id, item_json)` names a URL on the
@@ -209,6 +205,16 @@ distinct entry lane with a **narrow, every-validator fetch at entry**:
 - Adjudication and appeals read the stored, entry-corroborated text; an
   appeal never refetches, so the record does not decay with hosting
   (S14/S28).
+- The expected sha256 is taken over the text a validator will actually
+  hash: GenVM's `render(url, mode="text")` returns the page's
+  `innerText` passed through its webdriver's `normalizeWhitespace` (each
+  line trimmed, whitespace runs collapsed, blank-line runs collapsed), and the
+  contract hashes the first 8,000 characters of that. The app reproduces it
+  exactly for plain-text pages (`web/lib/evidence/anchor.ts`). Found live:
+  `ac-000023`'s registry extract, whose readings sit in columns, entered
+  `SOURCE_UNAVAILABLE` when the fingerprint was taken over the raw bytes
+  although every validator reached it and agreed; the same file entered
+  `EXTRACTED` on `ac-000024` once it was taken over the rendered text.
 
 This is the only fetch in the system. Uploaded evidence never rides it, and
 a deployment can run with an empty allowlist (then `VERIFIED` is honestly
@@ -223,12 +229,11 @@ disputes are what the corroboration ladder means by an "opposing stake"
 claim, not a fact — S31 symmetric), and a dispute filed after a verdict
 enables a new run exactly like new evidence.
 
-Because omission is the operator's cheapest attack, the UI includes a
-**per-run manifest view**: every party sees `(id, sha256)` for each of their
-items with "in run N" / "not in any run" status, straight from the contract
-manifest — so a silently dropped item is visible to the party who uploaded
-it. An invariant test asserts a buyer's recorded disputes and evidence
-appear in the next packet or the run records their absence.
+Every party writes its own items and disputes from its own wallet, so no
+intermediary can drop one. The **intake receipt** still shows the connected
+wallet each of its items against the contract's sealed manifests ("in the
+sealed packet, version N", or on the record and not yet sealed), because an
+item that is not in a sealed manifest cannot have been judged.
 
 ## 4. The contract (`contracts/autocourt_assessment.py`)
 
@@ -250,16 +255,18 @@ at implementation):
 
 ### 4.1 Preconditions (the S30/S25 guards)
 
-`adjudicate`/`readjudicate` refuse unless: the assessment is sealed, exactly
-zero runs are in flight, the caller is a **recorded party** (the seller of
-record or an account with recorded evidence or a recorded dispute on this
-assessment), and runs < `MAX_RUNS_PER_ASSESSMENT` — each refusal sentence
-names the specific precondition. `adjudicate` additionally refuses when a
-terminal-success run over the identical manifest root already stands: a
-re-roll is only reachable through `readjudicate`, which is itself a recorded,
-attributed, capped act — verdict-shopping is unrepresentable, not merely
-auditable. `readjudicate` is callable only from `ADJUDICATED`. Retrying a
-`FAILED` run is allowed to either party.
+`adjudicate` refuses unless the record is sealed and holds fewer than
+`MAX_RUNS_PER_ASSESSMENT` runs, and it refuses when a terminal-success run
+over the identical packet version already stands: a re-roll is only reachable
+through `readjudicate`, which is a recorded, attributed, capped act —
+verdict-shopping is unrepresentable, not merely auditable. `readjudicate`
+is callable only from `ADJUDICATED`, only in the name of a **recorded
+party** (the seller of record, or an account with recorded evidence or a
+recorded dispute on this record), and only when there is new evidence or a
+new dispute. Each refusal sentence names the specific precondition.
+`adjudicate` itself names no caller: anyone may ask the panel to judge a
+sealed packet, and a round that fails leaves the record sealed for anyone to
+ask again.
 
 ### 4.2 Failure ladder (S5, complete)
 
@@ -268,12 +275,11 @@ auditable. `readjudicate` is callable only from `ADJUDICATED`. Retrying a
 | validator "cannot obtain bytes" (uploaded lane) | impossible by construction — judged bytes are consensus state; the only byte-level failure is a state read failure = transaction failure, state unchanged |
 | anchor fetch: all nodes unreachable or hash-mismatch | item enters as `SOURCE_UNAVAILABLE` status; never an adverse finding |
 | anchor fetch: reachability split | no state change; retry — never a verdict from partial sight |
-| transport failure before a transaction exists | nothing reached the chain, so the worker retries, bounded by the job's attempts; a failure to READ a submitted transaction is never an attempt — its hash is kept and polled |
-| LLM failure mid-round (the round ends without a verdict) | state unchanged on chain; the attempt is recorded as a `FAILED` or `REJECTED` run with its transaction hash and `Assessment → FAILED`. The queue never re-runs a judgment: the retry is either party's (S26 exit), each its own recorded attempt |
-| a step fails mid-sequence | the steps queued behind it fail with it, naming it ("an earlier step failed (SEAL)"), so none addresses a record in a state it never reached. Only those: anything queued afterwards is a new attempt and runs. A buyer's dispute depends on nothing but the record existing, so it neither fails with an adjudication ahead of it nor fails a seal behind it |
-| malformed / structurally invalid model output | never survives consensus: the leader is refused and rotated, and if no valid output emerges the transaction fails with state unchanged; the app records the refused attempt as a `REJECTED` run with its transaction hash — the chain records only judgments that survived consensus |
+| transport failure before a transaction exists | nothing reached the chain and nothing was signed; the write reports it and the button is usable again. A failure to READ a submitted transaction is never a failure of the write: the hash is shown and polling continues |
+| LLM failure mid-round (the round ends without a verdict) | state unchanged on chain, the record stays SEALED, and anyone may request adjudication again: a new round with its own transaction |
+| malformed / structurally invalid model output | never survives consensus: the leader is refused and rotated, and if no valid output emerges the transaction fails with state unchanged. The chain records only judgments that survived consensus |
 | ungrounded quote on one finding | **not** a run failure — drop-and-downgrade (§4.5) |
-| protocol-level UNDETERMINED / CANCELED | no contract outcome, never mapped to a verdict. For a write (evidence, seal, dispute) the ended transaction is dropped and the next pass sends a NEW attempt with its own hash, bounded; for a judgment, the failed-round row above. A status that has not answered yet is polled, never resubmitted — a lost response is not a refusal |
+| protocol-level UNDETERMINED / CANCELED | no contract outcome, never mapped to a verdict. The write reports that the validators did not agree and nothing was recorded; sending it again starts a fresh round. A status that has not answered yet is polled, never resubmitted: a lost response is not a refusal |
 
 ### 4.3 Panel output and equivalence
 
@@ -352,27 +358,21 @@ LEADER_PAYLOAD_PARSE_CAP 300000` — every number inside the envelope sibling
 builds proved live, none frozen until the disposable-deploy calldata probe
 confirms them on the target network (§1).
 
-## 5. Data model (Prisma, the domain rows the brief names)
+## 5. Data model
 
-`User, Vehicle, VehicleClaim, Assessment, EvidenceItem, EvidenceExtraction,
-DiagnosticObservation, InspectionFinding, AssessmentFinding, AdjudicationRun,
-Appeal, AuditEvent, ShareLink` — relationships per the brief. Additions
-forced by the review: `VehicleClaim` carries buyer dispute flags (audit-
-evented); `EvidenceItem` carries MIME class, the full brief-§6 evidence-class
-enum (video and other unextractable classes stored, hashed, honestly
-`UNAVAILABLE`), redaction status, and both hashes; per-item chain of custody
-is the `AuditEvent` rows keyed by evidence id, surfaced on the evidence
-review screen. `DiagnosticObservation` and `InspectionFinding` are not just
-rows — they are **packet sections** (§3.3, brief §13). Every
-`AdjudicationRun` stores the manifest root, the tx hash, and renders from
-the **contract view as source of truth** (DB caches, chain decides). Share
-links are signed, expiring, revocable — and govern only the app's copy of
-anything (§8.2). Audit events are append-only.
+*Rewritten 14 Sep: there is no database.* The record is the contract's state,
+read through its views: `get_assessments(offset, limit)` lists record ids,
+`get_assessment` returns a record with its claims, items (without text) and
+disputes, `get_item_text` one item in full, `get_manifest` a sealed
+manifest, `get_run` one immutable run and `get_verdict` the standing one.
+Their shapes are typed in `web/lib/types.ts`, read from the contract rather
+than guessed. Every run renders from the contract; nothing is cached anywhere
+it could disagree with the chain.
 
 ## 6. Verdict model — a partition, not a flat enum
 
-The brief's 13 values are all implemented in `packages/shared-types` and
-mirrored in the contract, but they are **four different kinds of thing**,
+The brief's 13 values are all implemented in the contract and presented
+through `web/lib/present.ts`, but they are **four different kinds of thing**,
 and the spec says which is which so one deterministic function cannot
 contradict itself:
 
@@ -390,14 +390,13 @@ contradict itself:
   precedence over (a)+(b): `POSSIBLE_ODOMETER_ROLLBACK ≻ MILEAGE_CONFLICT ≻
   MATERIAL_CONCERN ≻ DIAGNOSTIC_CONCERN_SUPPORTED ≻` (claim-verdict
   summary).
-- **(d) Run/item statuses** (never verdicts): `REJECTED` (an adjudication
-  attempt whose transaction consensus refused — recorded app-side with its
-  tx hash, because a structurally invalid output never survives consensus
-  and so can never be written on-chain), `SOURCE_UNAVAILABLE` (an anchor item
-  all validators agreed was unreachable — §3.5; for uploaded items the
-  analogue is `extraction_status UNAVAILABLE`, disclosed to the panel, with
+- **(d) Item statuses** (never verdicts): `SOURCE_UNAVAILABLE` (an
+  independent source whose validators' bytes did not match its committed
+  fingerprint, or that none could reach — §3.5; for uploaded items the
+  analogue is an item with no extractable text, disclosed to the panel, with
   the sufficiency gate steering claims that rest on it to
-  `INSUFFICIENT_EVIDENCE` / `PHYSICAL_INSPECTION_REQUIRED`).
+  `INSUFFICIENT_EVIDENCE` / `PHYSICAL_INSPECTION_REQUIRED`). A round that
+  fails consensus records nothing on chain, so it has no status to carry.
 
 Every value in (a)–(c) carries an `adverse: bool` attribute, and **every
 floor and gate keys on attributes, never on enumerated names** — so an
@@ -430,76 +429,60 @@ explicit RESERVED note.
 
 ## 7. State machines
 
-**Assessment**: `DRAFT → SUBMITTED (sealed) → PROCESSING → ADJUDICATED |
-FAILED`; `ADJUDICATED --appeal (new evidence or new dispute)--> PROCESSING
-(new run)`; `FAILED --retry--> PROCESSING`. Every non-terminal state has a
-named mover — including in serverless deployment, where the mover is the
-platform cron + job lease (§2) — and a timeout exit (S26). **Evidence after
-a verdict** never mutates the verdict; it enables a new run (S33 shape).
-**Dispute after a verdict** does the same. **Share link**:
-`ACTIVE → REVOKED | EXPIRED` (wall-clock, S13).
+*Rewritten 14 Sep for the contract's own states.* **Record**: `OPEN`
+(taking evidence, sources and disputes) → `SEALED` (the manifest root is
+recomputed over the stored items; intake is closed) → `ADJUDICATED` (a run
+survived consensus). `ADJUDICATED --appeal (new evidence or a new
+dispute)--> ADJUDICATED` with a new run and a new packet version, up to the
+contract's run limit. A failed round leaves the record SEALED for anyone to
+retry, so no state waits on a mover that might not come (S26). **Evidence
+after a verdict** never mutates the verdict; it enables a new run (S33 shape).
+**A dispute after a verdict** does the same.
 
-**Role × act matrix** (the input to the §8-of-standards-map pure-function
-test): seller — create, upload, seal, adjudicate, retry; buyer (recorded via
-dispute or evidence) — upload, dispute, request readjudication, retry;
-either recorded party — view every run, manifest and receipt. An act any
-precondition blocks is listed with the reason in words, not offered as a
-button that fails.
+**Role × act matrix** (`web/lib/acts.ts`, pure, unit-tested): the seller of
+record opens the record, adds evidence and sources, and seals; any other
+connected wallet adds evidence and sources in its own name and disputes
+claims; anyone connected requests adjudication of a sealed packet; a recorded
+party (the seller, a disputer or an uploader) appeals. An act a precondition
+blocks is listed with the reason in words, not offered as a button that fails.
 
 ## 8. Trust story — what GenLayer removes, exactly
 
 ### 8.1 The layered claim (and its honest edges)
 
-AutoCourt's operator authenticates users, stores files, extracts text, and
-assembles the assessment packet — nothing about consensus changes that, so
-the packet is the operator's testimony about the evidence, made
-tamper-evident by per-item dual hashes and an on-chain manifest. What
-GenLayer removes is everything downstream: no party, including the operator,
-authors the verdict — a validator panel judges the recorded packet,
-deterministic public code derives every verdict and floor from findings the
-panel agreed on, and no one can re-run, rewrite, or selectively display that
-record, because every run and manifest is permanently on chain for either
-party to check. So a buyer is protected outright from a biased or bought
-judgment and from a rewritten record, and is protected from a curated packet
-by **detection rather than prevention**: committed hashes, intake receipts
-(§3.6), and immutable runs make omission and alteration provable by the
-party wronged.
+Each party extracts, redacts and signs their own evidence, and writes it
+from their own wallet; that text is the party's testimony about their
+document, made attributable by the signature and tamper-evident by the dual
+hashes in the sealed manifest. What GenLayer removes is everything
+downstream: nobody authors the verdict — a validator panel judges the
+recorded packet, deterministic public code derives every verdict and floor
+from findings the panel agreed on, and nobody can re-run, rewrite or
+selectively display that record, because every run and manifest is
+permanently on chain for anyone to check. The one fact no party supplies, the
+vehicle's identity, is read from the federal registry by every validator.
 
 The threat model (`docs/THREAT-MODEL.md`, brief §17) carries this as a
 table: **eliminated by design** (verdict authorship, record rewriting,
-selective display against the chain, silent re-rolls — §4.1),
-**detectable after the fact** (extraction alteration — via dual hashes,
-versioned extractor and `verify-extraction`; omission — via intake
-receipts), **honest limitations** (the operator can refuse service —
-AutoCourt is not censorship-resistant; the operator can stall but cannot
-forge or alter; app-attested account identity; originals custody; no
-antivirus). Remove GenLayer and the operator's backend becomes the author
-of the judgment and the keeper of the record — those two, not everything,
-are what consensus buys, and they are the two a buyer cannot audit alone.
+silent re-rolls, a document passed off as another party's), **detectable
+after the fact** (extraction that misstates a document, an item written in
+another account's name, Sybil patterns), **honest limitations** (the
+contract's open writes, wallet-only identity, permanent publicity).
 
 ### 8.2 Publicity, consent and redaction
 
-Stated verbatim in the docs, the settings screen, and the consent step at
-"generate assessment":
+Stated verbatim in the publish step of every upload:
 
-> Adjudicated evidence is public. Submitting an assessment publishes,
-> permanently, on a public blockchain: the bounded normalized text extract
-> of every packet item, the claim values, both hashes, and the panel's
-> findings and quotes. Original files are never published — they remain in
-> access-controlled app storage; only their sha256 fingerprints go
-> on-chain. Private-by-default means: private until included in a submitted
-> packet; inclusion is an explicit per-item consented act; redaction must
-> happen before submission and is impossible after.
+> Evidence on AutoCourt is public. Publishing an item writes, permanently,
+> to a public blockchain: its bounded text extract after your redactions,
+> your declared label and readings, both fingerprints and your signature
+> over them. The panel's findings and quotes are public too. Original files
+> never leave your browser; only their fingerprints go on chain. Redact
+> before you publish, because nothing on the chain can be removed afterwards.
 
-Consequences carried through the design: redaction runs **before** packet
-build and the redacted text is what `text_sha256` commits; per-item consent
-is a recorded act; the words "private", "sealed" and "revocable" are never
-used for anything that has entered a packet; §16 privacy tests assert
-access control for **originals and un-adjudicated items** (where it is
-true), not for adjudicated text (where it would be false). The
-account-and-privacy settings screen (brief §10 screen 13) is backed by:
-profile + session management, the user's evidence list with visibility
-state, pre-submission redaction controls, and this permanence statement.
+Consequences carried through the design: redaction happens in the browser
+**before** publishing, and the redacted text is what `text_sha256` commits;
+publishing requires an explicit acknowledgement of that statement; the words
+"private" and "revocable" are never used for anything on the record.
 
 ## 9. What is deliberately absent
 
@@ -513,7 +496,7 @@ provably cannot author — which is why the intake-provenance machinery
 no re-rolls, intake receipts) is the load-bearing part of this design, not
 decoration.
 
-## 10. Delivery order
+## 10. Delivery order (the founding plan, kept as a record)
 
 1. Contract + direct-mode suite (the heart; adversarial from day one, the
    brief's §7 injection scenarios as named tests)

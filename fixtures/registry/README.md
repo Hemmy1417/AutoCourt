@@ -15,14 +15,28 @@ What is real and what is not:
 | the registry, reference, registration mark and readings | invented |
 | the fetch, the hashes and the panel that judges it | real, on the deployment of record |
 
-Check the bytes yourself. The record stores the SHA-256 of the file at the
-pinned commit, and the contract refuses to judge a source whose fetched
-bytes hash to anything else:
+## The fingerprint is taken over the rendered text
+
+The readings are laid out in columns with two spaces between date and
+figure. That is deliberate now, and it was an accident first: validators read
+a page through GenVM's webdriver, which normalizes whitespace, so they hash
+the rendered text, not these raw bytes. Pinned at commit `76a39ee`:
+
+| | sha256 |
+|---|---|
+| the file's raw bytes | `83a9bc85009906d87faa1aa088c27cd80f91d5311a22ed9a8391fddb8a8fb0e3` |
+| the text every validator hashes | `4308ed17c2a6685ec1f1d9bc4c53c297882c8fe3c74d2b24f3566004f3682eb6` |
+
+Committing the first entered the source as unavailable on `ac-000023`;
+committing the second entered it on `ac-000024`. Check both:
 
 ```bash
-git cat-file -p <commit>:fixtures/registry/1HGCM82633A004352.txt | sha256sum
+git cat-file -p 76a39ee:fixtures/registry/1HGCM82633A004352.txt | sha256sum
 ```
 
-[`scripts/prove-clean-record.mjs`](../../scripts/prove-clean-record.mjs)
-runs this check before it starts, then reads the same hash back from the
-contract.
+and, for the rendered text, `renderedText` in
+[`web/lib/evidence/anchor.ts`](../../web/lib/evidence/anchor.ts), which
+[`web/tests/anchor.test.ts`](../../web/tests/anchor.test.ts) pins to the
+digest above and
+[`web/tests/live/clean-record.test.ts`](../../web/tests/live/clean-record.test.ts)
+uses on the live record.

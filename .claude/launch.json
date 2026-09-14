@@ -4,9 +4,9 @@
     {
       "name": "autocourt-web",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["next", "start", "-p", "3000"],
-      "cwd": "apps/web",
-      "port": 3000
+      "runtimeArgs": ["next", "start", "-p", "3120"],
+      "cwd": "web",
+      "port": 3120
     }
   ]
 }

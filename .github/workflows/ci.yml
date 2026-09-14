@@ -22,68 +22,26 @@ jobs:
       - name: direct suite
         run: PYTHONUTF8=1 python -m pytest tests/direct -q
 
-  typescript:
-    name: typecheck + unit tests
+  web:
+    name: web app (the build Vercel runs)
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: autocourt
-          POSTGRES_PASSWORD: autocourt_ci
-          POSTGRES_DB: autocourt
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U autocourt"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
-    env:
-      DATABASE_URL: postgresql://autocourt:autocourt_ci@localhost:5432/autocourt
-      SESSION_SECRET: ci-only-secret-0123456789
+    defaults:
+      run:
+        working-directory: web
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-      - run: npm ci
-      - run: npx prisma generate --schema packages/db/prisma/schema.prisma
-      - run: npx prisma migrate deploy --schema packages/db/prisma/schema.prisma
-      - run: npx tsc -b
-      - run: npx vitest run
-
-  e2e:
-    name: seller-to-buyer journey (browser)
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: autocourt
-          POSTGRES_PASSWORD: autocourt_ci
-          POSTGRES_DB: autocourt
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U autocourt"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
-    env:
-      DATABASE_URL: postgresql://autocourt:autocourt_ci@localhost:5432/autocourt
-      SESSION_SECRET: ci-only-secret-0123456789
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-      - run: npm ci
-      - run: npx prisma generate --schema packages/db/prisma/schema.prisma
-      - run: npx prisma migrate deploy --schema packages/db/prisma/schema.prisma
-      # Packages resolve to their COMPILED output, so the build must
-      # follow tsc -b; a stale dist would silently ship old code.
-      - run: npx tsc -b
-      - run: npx next build apps/web
-      - run: npx playwright install --with-deps chromium
-      - run: npx playwright test
+      - name: Install (the exact check Vercel runs)
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npx eslint .
+      - name: Unit tests
+        run: npm run test
+      - name: One address in every surface
+        run: npm run verify
+      - name: Build
+        run: npm run build

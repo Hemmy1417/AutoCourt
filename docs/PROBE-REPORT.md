@@ -3,8 +3,8 @@
 The release gate "bounds frozen only after the probe" (STANDARDS-MAP,
 release-gate table) demanded a disposable-deploy measurement of the real
 write-argument envelope on the target network before `get_config()` bounds
-were trusted. Run with `scripts/probe-calldata.mjs` and
-`scripts/probe-stage1-retry.mjs`, from ephemeral faucet-funded accounts.
+were trusted. Run with `web/scripts/probe-calldata.mjs` and
+`web/scripts/probe-stage1-retry.mjs`, from ephemeral faucet-funded accounts.
 Both contracts below are **disposable** — neither is the deployment of
 record, and nothing references them outside this report.
 
@@ -148,7 +148,7 @@ write the contract can only crash on. (The same receipts also showed the
 refusal-sentence decoder had to read `leader_receipt.result` — the arc's
 lesson, swept into `packages/genlayer-client` the same day.)
 
-Rerun after the fix, `scripts/seam-pass.mjs`: two fresh wallets signed in
+Rerun after the fix, `scripts/seam-pass.mjs` (a script of the full-stack build, at commit `76a39ee`): two fresh wallets signed in
 over EIP-191, listed, uploaded, disputed, consented and submitted through
 the exact API the browser drives — then the drain carried every write:
 

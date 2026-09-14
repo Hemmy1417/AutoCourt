@@ -43,13 +43,13 @@ AutoCourt's answer, per lane (ARCHITECTURE §3):
   contract recomputes the committed `text_sha256` over those bytes at entry.
   **The claim is split honestly in two** (the review caught v1 overclaiming
   here): *byte-identity at entry is structural* — every validator judges
-  identical bytes; *extraction fidelity is a stated limitation* — the app is
-  the sole extractor of uploaded files, mitigated by (a) the stored original
-  plus its on-chain `file_sha256` and pinned extractor version letting
-  anyone recompute the deterministic extraction after the fact
-  (`scripts/verify-extraction`), (b) the counterparty's own upload channel
-  as the corrective path, (c) extraction code committed and versioned in the
-  repo. Detectable, not prevented — and the docs say so.
+  identical bytes; *extraction fidelity is a stated limitation* — each uploader extracts
+  their own file in their own browser and signs the result, mitigated by (a)
+  the on-chain `file_sha256` and pinned extractor version letting anyone
+  holding the original recompute the deterministic extraction after the
+  fact, (b) the counterparty's own upload channel as the corrective path,
+  (c) extraction code committed and versioned in the repo. Detectable, not
+  prevented — and the docs say so.
 - **Independent-anchor evidence** (the only fetch in the system) inherits
   the full Verda v0.1.1 rule at entry: **every validator fetches the
   allowlisted URL itself** and agreement is exact-hash agreement on the
@@ -207,9 +207,10 @@ operator's intake role rebuts. The defensible, layered claim (ARCHITECTURE
 **record**; intake is **tamper-evident, not trustless** — dual-hash
 manifests, intake receipts, attributable disputes, and no-re-roll
 preconditions are what make the S9 answer true, which is why they are
-architecture, not polish. Operator liveness is documented as a limitation:
-the operator can decline to run an assessment, but cannot forge or alter
-one. No pooled funds → S3, S23, S24 largely N/A; recorded as consciously
+architecture, not polish. Since the rebuild as a dApp (14 Sep) there is no
+operator to decline service: every party writes from its own wallet, and
+the honest limitation moved with it — the contract's writes are open to any
+wallet (THREAT-MODEL). No pooled funds → S3, S23, S24 largely N/A; recorded as consciously
 out of scope rather than silently skipped.
 
 ### 8. The whole path is reachable in the UI — S40
@@ -224,10 +225,11 @@ brief demands thirteen screens, and the standard shapes how they are built:
   answer, never a vanished panel;
 - an act the backend or contract would refuse is listed with the reason in
   words, not offered as a button that fails;
-- the contract's own refusal sentence surfaces verbatim on failure (carried
-  by the API's typed error envelope), and the transaction lifecycle
-  (submitted → accepted → finalized) is visible, with "finalized" claimed
-  only at FINALIZED + leader SUCCESS (S32);
+- the contract's own refusal sentence surfaces on failure (decoded from the
+  fee simulation or the finalized receipt, its machine tag removed), and the
+  transaction lifecycle (estimating → wallet → submitted → pending → accepted
+  → finalized) is visible on every write, with "finalized" claimed only at
+  FINALIZED + leader SUCCESS (S32);
 - the detection machinery is a SURFACE, not a principle: the per-run
   manifest view shows every party their items as "in run N" / "not in any
   run" (intake receipts), and the report links every run, so re-rolls and
@@ -235,12 +237,12 @@ brief demands thirteen screens, and the standard shapes how they are built:
 
 ### 9. Windows, freshness and state exits — S13, S26, S6-era lessons
 
-Any window this product enforces (share-link expiry, appeal windows if
-added) is wall-clock, never activity-counted. Every non-terminal state names
-who can move it and what happens if they never do (S26): an assessment stuck
-in `PROCESSING` has a timeout path to `FAILED` with retry; in serverless
-deployment the mover is **named** — a platform cron driving the drain route
-under a job lease — so no state waits on an actor that does not exist. A
+Any window this product enforces (appeal windows if added) is wall-clock,
+never activity-counted. Every non-terminal state names who can move it and
+what happens if they never do (S26): an `OPEN` record is sealed by its
+seller, and a `SEALED` record can be sent to the panel by anyone connected,
+again after a failed round — so no state waits on an actor that does not
+exist. A
 `PHYSICAL_INSPECTION_REQUIRED` verdict is terminal-but-reopenable by new
 evidence. Evidence or disputes arriving after a verdict never mutate that
 verdict — they can only open a new run (S33's shape: no objection a
@@ -259,10 +261,10 @@ standing verdict never read).
 | Finality language | S32 | FINALIZED only from the receipt; ACCEPTED is written as ACCEPTED |
 | Adversarial names tell the truth | S39 lesson | grep tests for `tolerated` / `endorsed` / `is True` on adversarial cases — each is a decision to re-derive, not inherit |
 | Bounds frozen only after the probe | template §6.8 | the disposable-deploy calldata probe ran on the target network before `get_config()` bounds were frozen; the diversity diagnostic pass ran before the canonical deploy |
-| Intake receipts hold | brief §16, S40 | the invariant test proving a party's recorded evidence/disputes appear in the next packet — or the run records their absence — passes |
-| Publicity consent is live | brief §15, S12 | the verbatim publicity statement (ARCHITECTURE §8.2) appears in the consent step, the settings screen, and the README, character-identical |
-| Secrets | template §1.4 | no keys, mnemonics or tokens in the repo; `.env` gitignored with `.env.example` committed |
-| Test claims | S11, S30 | counts stated only from a run in this session; invariant tests exist for concurrency (two runs racing one assessment — guarded twice: the contract's §4.1 preconditions refuse a second judgment of one packet, and the app's claim lets only one of two simultaneous requests queue anything at all, so the refusal is never paid for; `apps/web/test/claim.db.test.ts` pins the claim and record lock against real PostgreSQL, and `scripts/prove-double-clicks.mjs` sends every state-moving act twice at once through the live product) and post-terminal actions (evidence after verdict, appeal after appeal, re-adjudicate past MAX_RUNS) |
+| Intake receipts hold | brief §16, S40 | the receipt page reads the sealed manifests from the contract and places every item the connected wallet wrote in one, or says it is not sealed yet |
+| Publicity consent is live | brief §15, S12 | the verbatim publicity statement (ARCHITECTURE §8.2) appears in the publish step, which cannot be completed without acknowledging it |
+| Secrets | template §1.4 | no keys, mnemonics or tokens in the repo; the web app needs none at all, and `web/.env.example` names only public values |
+| Test claims | S11, S30 | counts stated only from a run in this session; the pure act function (`web/lib/acts.ts`) is tested across states × roles, including post-terminal actions (evidence after a final verdict, appeal past the run limit), and the contract's §4.1 preconditions refuse a second judgment of one packet on chain |
 
 ## Standards consciously N/A here, and why
 

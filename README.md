@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="apps/web/app/icon.svg" width="72" alt="AutoCourt" />
+  <img src="web/app/icon.svg" width="72" alt="AutoCourt" />
 </p>
 
 <h1 align="center">AutoCourt</h1>
@@ -7,65 +7,91 @@
 <p align="center">
   Used-vehicle claims, adjudicated. A seller declares the claims, evidence
   goes on a public record — both sides — a validator panel judges it, and
-  deterministic public code derives every verdict. Nobody, including the
-  operator, authors the outcome.
+  deterministic public code derives every verdict. Nobody authors the outcome.
 </p>
 
 ---
 
 ## The deployment of record
 
+AutoCourt reads and writes one deployment of record: `0xE26B3C4A36EC1a83Aa4814a9CA44e4b6a7EB7998`.
+
 | | |
 |---|---|
 | Contract | [`0xE26B3C4A36EC1a83Aa4814a9CA44e4b6a7EB7998`](https://explorer-studio-dev.genlayer.com/address/0xE26B3C4A36EC1a83Aa4814a9CA44e4b6a7EB7998) |
 | Network | GenLayer Studio Next, chain 61997 |
 | RPC | `https://studio-next.genlayer.com/api` |
-| Source | [`contracts/autocourt_assessment.py`](contracts/autocourt_assessment.py) — byte-verified: `node scripts/deploy.mjs verify 0xE26B3C4A…7998` reports byte-for-byte identity (sha256 `aac854f1…01ac`) |
+| Source | [`contracts/autocourt_assessment.py`](contracts/autocourt_assessment.py) — byte-verified: `cd web && node scripts/deploy.mjs verify 0xE26B3C4A…7998` reports byte-for-byte identity (sha256 `aac854f1…01ac`) |
 | Superseded | `0x214821A6…5555` (opening round split on an immaterial sufficiency bit), `0xE9d81837…C6a9` (appeal round split on one marginal citation), then `0x283E59d0…3c30` (superseded by the independent identity check below, not by a defect) — every split is documented with its receipts in [PROBE-REPORT](docs/PROBE-REPORT.md) |
 | Anchor allowlist | `["raw.githubusercontent.com"]` — the proven independent evidence host on this network, standing in for vehicle registries; visible in `get_config()`, and `VERIFIED` is reachable only through it |
 
+## The app
+
+One web app in [`web/`](web) that talks to the contract directly, in the shape
+of the author's Verda repository. There is no server, database, queue or key
+behind it:
+
+- **Reads** go from the visitor's browser straight to Studio Next, typed and
+  paced under the RPC's measured limit of 30 contract reads a minute per IP.
+  Every page renders from the contract's own views, so what you see is the
+  record, not a copy of it.
+- **Writes** are signed by the connected wallet. Each one sizes its fee
+  deposit, surfaces a refusal in the contract's own words before anything is
+  signed, confirms by reading the record back, and says "finalized" only when
+  the transaction reports it.
+- **Evidence never leaves your browser as a file.** It is read, fingerprinted
+  and redacted there; what you publish is the text you reviewed, both
+  fingerprints, your typed readings and your wallet's signature over them.
+- **Test GEN** for fees comes from the wallet menu, which asks Studio Next's
+  faucet for the connected address.
+
+The screens: the records list, list a vehicle, the record (claims and
+disputes, evidence, independent sources, the next step), the verdict report,
+claim-by-claim evidence with quotes, the intake receipt, and the appeal.
+
+AutoCourt was first built full stack, with an operator wallet sending every
+transaction through a job queue. The contract never required an operator, so
+the rebuild (14 Sep) serves the same deployment of record: every record and
+proof below is unchanged and renders in the app.
+
 ## What the contract owns, and what it refuses to
 
-The operator's app authenticates wallets, stores files, extracts text and
-assembles packets — that part is testimony, made tamper-evident by dual
-hashes in an on-chain manifest. Everything downstream is consensus:
+Each party extracts, redacts and signs their own evidence and writes it from
+their own wallet; that part is the party's testimony, made attributable by the
+signature and tamper-evident by dual hashes in the sealed manifest. Everything
+downstream is consensus:
 
 - **The contract checks the listing's core claim itself.** Before a record
   exists, every validator decodes the VIN at the public federal registry
   (NHTSA vPIC) and must agree on what it read. This is the one fact on an
-  AutoCourt record that no party supplies — not the seller, not the buyer,
-  not the operator — and it runs on every assessment. A mismatch caps
-  every claim below `VERIFIED` and takes the headline; an unreachable or
-  undecodable registry is recorded as absence, never as an accusation.
+  AutoCourt record that no party supplies, and it runs on every assessment.
+  A mismatch caps every claim below `VERIFIED` and takes the headline; an
+  unreachable or undecodable registry is recorded as absence, never as an
+  accusation.
 - **Evidence is corroborated where it enters the record.** Uploaded text
-  arrives as calldata with its hash recomputed at entry by every
-  validator; anchor pages are fetched by every validator itself. No
-  leader-private byte exists anywhere. The anchor lane is reachable from
-  the app — "Add an independent source" — and it is the only path to
-  `VERIFIED`, so the strongest verdict in the system is earnable by using
-  the product, not only by running a script.
-- **Uploaders attest to their own bytes.** The wallet that uploads a
-  document signs its text hash, and the signature lands on the public
-  record beside the hash it covers. Anyone can verify forever that these
-  are the bytes that account signed, so the operator can assemble a packet
-  but cannot substitute a document. Unsigned items are recorded AS
-  unsigned.
+  arrives as calldata with its hash recomputed at entry by every validator;
+  independent sources are fetched by every validator itself. No
+  leader-private byte exists anywhere. "Add an independent source" is the
+  only path to `VERIFIED`.
+- **Uploaders attest to their own bytes.** The uploading wallet signs both of
+  an item's hashes, and the signature sits on the public record beside them.
+  The app checks it on every view, and anyone can repeat the check from
+  chain data alone. Unsigned items are shown AS unsigned.
 - **The model returns findings; code derives every verdict.** The panel
   outputs per-claim, per-item findings with quotes that must ground
-  word-token-wise in the recorded text. Deterministic code — run
-  identically inside every validator — derives the corroboration class of
-  every edge, every claim verdict, the flags, the rollup, confidence and
-  next action.
-- **Floors key on attributes, never names.** A claim backed only by its
-  own side's uploads cannot reach `VERIFIED`; an accusation resting only
-  on the accuser's uploads cannot become `CLAIM_CONTRADICTED`; the
-  rollback flag needs two distinct wallets or an anchor.
-- **Appeals re-read the recorded bytes.** `RECORDED` items are referenced
-  by id and read from contract storage — there is no parameter through
-  which replacement bytes could travel. Prior runs are immutable.
+  word-token-wise in the recorded text. Deterministic code, run identically
+  inside every validator, derives the corroboration class of every edge,
+  every claim verdict, the flags, the rollup, confidence and next action.
+- **Floors key on attributes, never names.** A claim backed only by its own
+  side's uploads cannot reach `VERIFIED`; an accusation resting only on the
+  accuser's uploads cannot become `CLAIM_CONTRADICTED`; the rollback flag
+  needs two distinct wallets or an independent source.
+- **Appeals re-read the recorded bytes.** Recorded items are referenced by id
+  and read from contract storage: there is no parameter through which
+  replacement bytes could travel. Prior runs are immutable.
 - **Verdict-shopping is unrepresentable.** A second adjudication of an
-  unchanged manifest is refused; a re-judgment is only reachable as a
-  recorded, attributed, capped appeal.
+  unchanged packet is refused; a re-judgment is only reachable as a recorded,
+  attributed, capped appeal.
 
 ## The verdict model
 
@@ -74,27 +100,27 @@ hashes in an on-chain manifest. Everything downstream is consensus:
 | claim verdicts (one per claim) | `VERIFIED` · `PARTIALLY_VERIFIED` · `CLAIM_CONTRADICTED` · `CONFLICTING_EVIDENCE` · `INSUFFICIENT_EVIDENCE` · `PHYSICAL_INSPECTION_REQUIRED` · `INCONCLUSIVE` |
 | code-derived flags | `mileage_conflict` · `odometer_rollback_indicated` · `diagnostic_concern_supported` · `vehicle_identity_mismatch` |
 | assessment rollup (fixed precedence) | identity mismatch ≻ `POSSIBLE_ODOMETER_ROLLBACK` ≻ `MILEAGE_CONFLICT` ≻ `MATERIAL_CONCERN` ≻ `DIAGNOSTIC_CONCERN_SUPPORTED` ≻ … |
-| statuses, never verdicts | `REJECTED` (an attempt consensus refused — app-side with its tx hash) · `SOURCE_UNAVAILABLE` (an anchor, or the registry, all validators agreed was gone) |
+| statuses, never verdicts | `SOURCE_UNAVAILABLE` (an independent source, or the registry, all validators agreed was gone or did not match) |
 | identity, from the registry | `CONFIRMED` · `MISMATCH` · `UNDECODABLE` · `SOURCE_UNAVAILABLE` |
 
-Corroboration ladder, derived in-contract per (claim, item, direction)
-edge: `INDEPENDENT` (every-validator anchor) > `ADVERSE` (recorded
-opposing stake, distinct wallet) > `FIRST_PARTY`. Items from one wallet
-are one voice. `VERIFIED` requires `INDEPENDENT`.
+Corroboration ladder, derived in-contract per (claim, item, direction) edge:
+`INDEPENDENT` (every-validator fetch) > `ADVERSE` (recorded opposing stake,
+distinct wallet) > `FIRST_PARTY`. Items from one wallet are one voice.
+`VERIFIED` requires `INDEPENDENT`.
 
 ## Lifecycle
 
 ```
-seller creates ──► evidence enters ──► disputes recorded ──► SEAL
-   (claims)      (per-item writes,      (opposing stakes)  (manifest root
-                  hash checked at                           recomputed over
-                  entry; anchors                            stored items)
-                  fetched by every                              │
-                  validator)                                    ▼
-        appeal ◄── ADJUDICATED ◄──────────────────────── panel round
-   (new items tagged;   │                          (findings + grounded
-    RECORDED bytes      ├──► report · claim-by-claim ·  quotes; verdicts
-    re-read from        │    intake receipt · share     derived in code)
+seller opens ──► evidence enters ──► disputes recorded ──► SEAL
+ (claims; VIN    (per-item writes,     (opposing stakes,     (manifest root
+  decoded by      signed by uploader;   from any wallet)      recomputed over
+  every           sources fetched by                          stored items)
+  validator)      every validator)                                 │
+                                                                   ▼
+        appeal ◄── ADJUDICATED ◄───────────────────────────── panel round
+   (new items tagged;   │                            (findings + grounded
+    recorded bytes      ├──► report · claim-by-claim ·  quotes; verdicts
+    re-read from        │    intake receipt             derived in code)
     storage; ≤4 runs)   ▼
                   the standing verdict names its run AND the total
 ```
@@ -108,38 +134,59 @@ deploys before anything canonical existed
 - 8,000- and 10,000-char write arguments FINALIZED with byte-consistent
   read-back; the real 6,559-char item write read back byte-identical.
 - The first live panel round burned `MAJORITY_DISAGREE` — equivalence was
-  comparing judgment shadings that model families split on. Narrowed to
-  the decision cut, the rerun finalized `MAJORITY_AGREE` deriving exactly
-  what the deterministic spec predicts. Both transactions are in the
-  report; five direct tests pin both directions.
+  comparing judgment shadings that model families split on. Narrowed to the
+  decision cut, the rerun finalized `MAJORITY_AGREE` deriving exactly what
+  the deterministic spec predicts. Both transactions are in the report; five
+  direct tests pin both directions.
 
-## The independent source, through the app
+## The independent source, and what hashing it taught
 
-`submit_anchor_item` is the only lane where the contract fetches, and the
-only path to `VERIFIED`. Driven from the product by
-[`scripts/anchor-app-demo.mjs`](scripts/anchor-app-demo.mjs) — sign in,
-name a source, let the queue carry it:
+`submit_anchor_item` is the only lane where the contract fetches: every
+validator reads the page itself, and the item enters only if the bytes it
+hashed match the fingerprint the adder committed.
 
-| step | result |
-|---|---|
-| a party-controlled source | refused: `seller-controlled.example.com is not an allowlisted independent source` |
-| an allowlisted source | accepted, then **EXTRACTED** — every validator fetched it and agreed |
+**The finding.** GenVM's `render(url, mode="text")` does not return a text
+file's raw bytes. Its webdriver takes the page's `innerText` and normalizes
+whitespace line by line (read from the GenVM source, function
+`normalizeWhitespace`). The first registry extract committed to this
+repository has its readings in columns separated by two spaces, so a
+fingerprint taken over the raw file could never match:
 
-`ac-000006` · tx `0x3fa2050b6b76f88a466cf89ddecf4c02e907139dccf685442e88c863973558f9`
-· file hash `5ba90856…9b32e` (what the app committed) · text hash
-`5375d6df…39000` (what the contract normalized and stored)
+| record | fingerprint committed | what every validator hashed | entered as |
+|---|---|---|---|
+| `ac-000023` | raw bytes `83a9bc85…fb0e3` | `4308ed17…682eb6` — every validator reached the page and agreed (tx `0x22790a41…df28f6`) | `SOURCE_UNAVAILABLE`, never judged |
+| `ac-000024` | rendered text `4308ed17…682eb6` | `4308ed17…682eb6` | **`EXTRACTED`** |
 
-The packet cannot be sealed while an anchor is still entering: until
-every validator has agreed on the bytes they fetched, its real hashes are
-unknown, and a manifest sealed now would cover a hash the app merely
-guessed. The submit gate says exactly that rather than failing later.
+The same commit-pinned file both times
+([`fixtures/registry/1HGCM82633A004352.txt`](fixtures/registry/1HGCM82633A004352.txt)
+at `76a39ee`, a fictional extract the fixture's README explains). The app now
+fingerprints what the validators will render
+([`web/lib/evidence/anchor.ts`](web/lib/evidence/anchor.ts)), and a unit test
+pins that function to the digest the validators computed on chain.
+
+## A clean record, live
+
+The case a buyer hopes to find, on the deployment of record, driven through
+the same modules the browser runs with a fresh wallet funded from the faucet
+([`web/tests/live/clean-record.test.ts`](web/tests/live/clean-record.test.ts),
+`AUTOCOURT_LIVE=1 npx vitest run tests/live`). Every line is an assertion the
+test fails without. `ac-000024`, run 14 Sep 2026, all five transactions
+FINALIZED under `MAJORITY_AGREE`:
+
+| step | asserted | tx |
+|---|---|---|
+| open the record | the registry confirms the listed 2003 Honda Accord: `CONFIRMED` | `0xf273156bf2e0eb2e9c87db48ac1f816d5eaaf989ff367f0925ae4fc0a50a85ff` |
+| the seller's signed invoice | read back from the chain, the signature verifies against the on-chain hashes | `0x64b8861499605c1d93bde273f831ae4351afa197776e1271b7064c6a72b1c069` |
+| this repository's registry extract | `EXTRACTED`; the stored fingerprint is the rendered text's, and the stored text hash recomputes | `0x259f79e6a40c5598f8193a31e5b17198369f8bd4e8d364a7b644f28c66937386` |
+| seal | the root computed in the app is the root the contract recomputed | `0x4903f92386d56e54e16729289f305121cf8e6e2e0107f640441615d23137d74e` |
+| adjudicate | mileage claim **`VERIFIED` / HIGH**, supported by `INDEPENDENT` (and `FIRST_PARTY`), nothing against it; headline **`VERIFIED`**; no flag raised | `0xa8f7f90b57b64fffa85298c19f22ad0dbba841626ef9c7b8984b157b7a9c54f9` |
 
 ## The identity check, live
 
 Two assessments differing only in their VIN, on the deployment of record.
-Nothing about either outcome came from a party — four validators each
-decoded the VIN at the federal registry and had to agree
-([`scripts/identity-demo.mjs`](scripts/identity-demo.mjs)):
+Nothing about either outcome came from a party — four validators each decoded
+the VIN at the federal registry and had to agree
+([`web/scripts/identity-demo.mjs`](web/scripts/identity-demo.mjs)):
 
 | listing | seller declares | the registry reads | result |
 |---|---|---|---|
@@ -150,31 +197,31 @@ decoded the VIN at the federal registry and had to agree
 `0xf8180b706a3db89404156bc27b972ef37d2b6a0264898f4ea588f35505ee6c0b`
 
 The second row is the point. The seller supplied every other byte on that
-record, and the contract still caught the identity — because the one
-question that matters most was never asked of the seller.
+record, and the contract still caught the identity — because the one question
+that matters most was never asked of the seller.
 
 Make comparison is deliberately forgiving ("Mercedes" matches
 "MERCEDES-BENZ"), because a false mismatch accuses an honest seller. An
-abbreviation the registry does not share — "VW" against "VOLKSWAGEN" —
-reads as a mismatch; that is a stated limitation, and the reason a
-mismatch caps a claim rather than alleging fraud.
+abbreviation the registry does not share — "VW" against "VOLKSWAGEN" — reads
+as a mismatch; that is a stated limitation, and the reason a mismatch caps a
+claim rather than alleging fraud.
 
 ## Live evidence
 
 <!-- ARC:BEGIN -->
 Run 13 Sep 2026 against the deployment of record
 `0xE26B3C4A36EC1a83Aa4814a9CA44e4b6a7EB7998` (operator `0x8af429f1…6fd1`),
-by [`scripts/arc.mjs`](scripts/arc.mjs) — every line below is either
-backed by a hard assertion in that script (it exits non-zero without it)
-or marked *observed* where the value is the live panel's judgment. Every
+by [`web/scripts/arc.mjs`](web/scripts/arc.mjs) — every line below is either
+backed by a hard assertion in that script (it exits non-zero without it) or
+marked *observed* where the value is the live panel's judgment. Every
 transaction FINALIZED under MAJORITY_AGREE. Explorer:
 `https://explorer-studio-dev.genlayer.com/tx/<hash>`.
 
 **Act I — the sale record** (`ac-000003`): a real VIN, declared honestly.
-Before the record existed, every validator decoded it at the federal
-registry — **CONFIRMED, 2003 HONDA Accord**. Then the seller's invoice and
-the buyer's history record enter with their text hashes recomputed at
-entry, the buyer's dispute is recorded, and the packet seals.
+Before the record existed, every validator decoded it at the federal registry
+— **CONFIRMED, 2003 HONDA Accord**. Then the seller's invoice and the buyer's
+history record enter with their text hashes recomputed at entry, the buyer's
+dispute is recorded, and the packet seals.
 
 | step | tx |
 |---|---|
@@ -188,11 +235,11 @@ entry, the buyer's dispute is recorded, and the packet seals.
 Derived on-chain: rollup `PARTIALLY_VERIFIED`. CL-01 support classes
 `[FIRST_PARTY]`, confidence LOW; CL-02 support `[ADVERSE]` — the disputing
 buyer's own record backing the claim it disputes — confidence MEDIUM.
-**Asserted**: the registry confirms the declared vehicle, and neither
-claim reaches `VERIFIED` without an INDEPENDENT anchor.
+**Asserted**: the registry confirms the declared vehicle, and neither claim
+reaches `VERIFIED` without an independent source.
 
-**Act II — the rollback record** (`ac-000004`): a later-dated LOWER
-odometer reading enters from a second account, with its dispute.
+**Act II — the rollback record** (`ac-000004`): a later-dated LOWER odometer
+reading enters from a second account, with its dispute.
 
 | step | tx |
 |---|---|
@@ -204,12 +251,12 @@ odometer reading enters from a second account, with its dispute.
 | adjudicate (panel) | `0x0374c932e36edd2a748409b67c8472816ed18597470fc417826f8d4411464795` |
 
 **Asserted**: the contract recomputes the mileage conflict from typed
-observation rows. *Observed*: the panel found no explanation in the
-record, so the rollup is `POSSIBLE_ODOMETER_ROLLBACK`.
+observation rows. *Observed*: the panel found no explanation in the record, so
+the rollup is `POSSIBLE_ODOMETER_ROLLBACK`.
 
 **Act III — the appeal** (`ac-000003`): the buyer's post-verdict
-counter-report enters tagged NEW; the appeal re-judges the stored bytes
-plus it.
+counter-report enters tagged NEW; the appeal re-judges the stored bytes plus
+it.
 
 | step | tx |
 |---|---|
@@ -221,10 +268,10 @@ byte-identical after the appeal; the new item was judged at packet v2 and
 tagged post-verdict; and the accuser-only contradiction is floored at
 inspection rather than becoming `CLAIM_CONTRADICTED`.
 
-**The wall** — five refusals, each FINALIZED with the contract's own
-sentence decoded from the leader receipt. **None unproven.** The two
-pre-seal gates run on a dedicated OPEN fixture (`ac-000005`), because on a
-sealed record the seal gate fires first and would prove the wrong sentence.
+**The wall** — five refusals, each FINALIZED with the contract's own sentence
+decoded from the leader receipt. **None unproven.** The two pre-seal gates run
+on a dedicated OPEN fixture (`ac-000005`), because on a sealed record the seal
+gate fires first and would prove the wrong sentence.
 
 | wall | the contract's sentence | tx |
 |---|---|---|
@@ -235,63 +282,53 @@ sealed record the seal gate fires first and would prove the wrong sentence.
 | anchor off the allowlist | `[EXPECTED] anchor host is not on the deployment allowlist` | `0x8924d76b99a3ad7a0fda04c00f5e5cf7f43675ca4bf0f6fbc613d5ec1cda80b1` |
 <!-- ARC:END -->
 
+## Earlier live proofs
+
+Produced on 13–14 Sep by the full-stack build this repository replaced. Their
+scripts drove that build's HTTP API, so they live at commit
+[`76a39ee`](https://github.com/Hemmy1417/AutoCourt/tree/76a39eea547c8286dcdaf360899303f9c75b481b/scripts);
+the records they made are permanent on the deployment of record and open in
+the app today.
+
+| record | what it proved |
+|---|---|
+| `ac-000006` | the independent-source lane from the app: an allowlisted source entered `EXTRACTED` once every validator agreed (tx `0x3fa2050b…73558f9`); the contract's own refusal of an off-allowlist source is the arc's wall above |
+| `ac-000009` | a full appeal cycle; run 1 byte-identical after run 2 |
+| `ac-000010` | **`VERIFIED` / HIGH** on `INDEPENDENT` corroboration: a disclosed accident, corroborated by a police report no party authored |
+| `ac-000012` | `diagnostic_concern_supported`: a trouble code with symptom support in the record (a stored code alone is never an auto-failure) |
+| `ac-000015` / `ac-000016` | the identity check as a controlled pair: byte-identical evidence apart from the VIN; the undecodable VIN reached `VERIFIED` / HIGH, the VIN that decodes to a 1989 bus reached `CONFLICTING_EVIDENCE` / LOW at `MATERIAL_CONCERN` |
+| `ac-000019` | a re-judgment of an unchanged packet refused in the contract's words: "run 1 already judged this exact packet" |
+| `ac-000022` | a record at the contract's 4-run limit, and the contract refusing a fifth: `[EXPECTED] the record holds at most 4 runs` (tx `0x9e066eae…01cd`) |
+
 ## Running it
 
-```
-npm install
-cp .env.example .env        # set SESSION_SECRET, GENLAYER_OPERATOR_PK
-npx prisma generate --schema packages/db/prisma/schema.prisma
-node scripts/dev-db.mjs     # real PostgreSQL 16, no Docker needed (keep running)
-npx prisma migrate deploy --schema packages/db/prisma/schema.prisma
-npx next dev apps/web       # the 13 screens
-npm run worker              # the job mover (or a cron on /api/jobs/drain)
+```bash
+cd web
+npm ci
+npm run dev
 ```
 
-`npm run worker` compiles first (`tsc -b`) and then runs the built
-output. Every workspace package resolves to `dist/`, so plain Node cannot
-be pointed at the TypeScript source — and `tsc -b` decides what to
-rebuild from `tsconfig.tsbuildinfo`, not from whether `dist/` is actually
-there, so never skip the compile step.
+Open `http://localhost:3000` with a browser wallet (MetaMask or any EVM
+wallet). The app adds GenLayer Studio Next to the wallet when you connect, and
+the wallet menu gets you test GEN. No environment variables are needed: the
+deployment of record is the default, and
+[`web/.env.example`](web/.env.example) shows the `NEXT_PUBLIC_*` values that
+override it.
 
-`scripts/dev-db.mjs` serves a real PostgreSQL 16 on `localhost:5455`
-from binaries the `embedded-postgres` dev dependency ships — nothing to
-install and no Docker; the cluster lives in `var/pg` (gitignored), with
-both `autocourt` and the browser tests' `autocourt_e2e`. It is created
-UTF-8 on purpose: left to itself, initdb on Windows takes the ANSI code
-page, and a panel's non-breaking hyphen could not be stored. A cluster
-made before that is refused, by name, until
-`node scripts/dev-db-reencode.mjs` rebuilds it as UTF-8 — every row
-copied and counted, the original kept beside it. A
-machine with Docker can use
-`docker compose -f infrastructure/docker/docker-compose.yml up -d`
-instead (then point `DATABASE_URL` at `:5432`); CI runs the same
-`postgres:16` as a service container. The web app reads the repo-root
-`.env` (next.config.mjs loads it; a deployment's own environment always
-wins).
+## Deploying it
 
-Sign-in is wallet-only: an EIP-191 signature over a server nonce; no
-transaction, no fee. The wallet address is the account — on the site and
-in the on-chain record. Wallets are discovered via EIP-6963 (with a
-legacy `window.ethereum` fallback), so multiple installed wallet
-extensions each get their own sign-in button instead of fighting over
-one global.
+Vercel, with the project's **Root Directory set to `web`**. No environment
+variables and no secrets are required; the build is `next build`, and CI runs
+the same `npm ci` and build on every push.
 
 ## Tests
 
 | suite | count | what it proves |
 |---|---|---|
 | `pytest tests/direct` | 128 | the whole contract against a runtime-strict stub: floors, walls, appeals, forged-leader replays (a fabricated-but-consistent dossier is refused because its quotes do not ground), every equivalence lesson pinned in both directions — decision cut, sufficiency materiality, citation materiality, explanation shadings — and the independent identity check and uploader attestation |
-| `npx vitest run` | 86 | VIN/OBD-II/mileage code, evidence pipeline honesty, the packet builder (with a golden pinning TS `manifestRoot` byte-equal to the contract's), S40 act availability as a pure function, and the rule that the run limit is read from `get_config()` rather than remembered. With `DATABASE_URL` set (CI sets it), 20 of them run against real PostgreSQL in a throwaway schema: the job queue's ordering, failure and retry rules driven through the real drainer with a stub chain — a failure fails only what was queued behind it, never the retry that follows; a write that missed consensus is sent again as a new attempt while an unanswered one never is; a judgment is re-run only by the parties; a verdict is stored byte for byte in any script — and the claim and record lock that let exactly one of two simultaneous requests through. Every rule is mutation-checked |
-| `npx playwright test` | 1 journey | the complete seller-to-buyer path in a real browser against a real server and Postgres: landing → two wallets signing in with real EIP-191 signatures → list → upload (fixture bytes) → **redact a card number and prove it is gone from the bytes that will be published** → typed rows → the consent gate refusing an unconsented packet, now signing the attestation → share → buyer disputes and counters → submit → the revoked link answers with its reason. Runs on an isolated database so its fixtures never ride the local drain onto the chain |
-| `CHAIN_E2E=1 npx playwright test` | + 1 verdict | the post-verdict screens the journey cannot reach, rendered against a REAL adjudicated record (`ac-000003`, two runs and an appeal, produced by the arc): the identity row, the report's run-of-total, code-derived confidence and non-consensus prose label, Provenance, the intake receipt read from the contract's own manifest, and the appeal gate. Skipped without the flag, because it reads a live contract |
-| `node scripts/seam-pass.mjs` | live | the app→chain seam: the same API the browser drives, then the drain loop carrying every queued write to the deployment of record — on-chain id linked, evidence landed, dispute recorded, sealed, and the intake receipt confirming every item inside the on-chain manifest |
-| `node scripts/appeal-pass.mjs` | live | the APPEAL path through the product, which the browser tests structurally cannot reach: a full cycle of submit → adjudicate → post-verdict counter-evidence → appeal → readjudicate. Ten assertions, including that run 1 stays byte-identical (an appeal adds a run, it never edits one) and that the Appeal row is linked to the run it produced rather than orphaned |
-| `node scripts/anchor-app-demo.mjs` | live | the independent-source lane from the app: a party-controlled source refused by the allowlist, an allowlisted one accepted and EXTRACTED once every validator agreed |
-| `node scripts/prove-verified.mjs` | live | the two outcomes no live round had ever produced: `ac-000010` reaching **`VERIFIED` / HIGH** on `INDEPENDENT` corroboration (the flagship verdict, and the whole point of the anchor lane), and `ac-000012` raising `diagnostic_concern_supported` — a stored trouble code is never an auto-failure, so the flag needs the panel to find symptom support in the record |
-| `node scripts/prove-identity-cap.mjs` | live | the registry identity check as a **controlled pair**: two records whose evidence is byte-identical apart from the VIN. `ac-000015` (undecodable) reached `VERIFIED` / HIGH; `ac-000016`, whose VIN decodes at the federal registry to a 1989 bus while the listing claims a 2019 wagon, reached `CONFLICTING_EVIDENCE` / LOW at `MATERIAL_CONCERN`. The seller supplied every byte of both; the one fact no party supplied moved the outcome |
-| `node scripts/prove-runs-cap.mjs` | live | a record driven to the contract's 4-run limit (`ac-000022`: an adjudication and three appeals, standing run 4), then refused in both places it has to be: the app answers 409 before writing anything ("this record already holds the 4 runs the contract allows"), and the contract refuses a `readjudicate` called directly with an operator key, in its own words — `[EXPECTED] the record holds at most 4 runs` (tx `0x9e066eae…01cd`) |
-| `node scripts/prove-double-clicks.mjs` | live | every act that moves a record, sent twice at the same instant through the live product — add a source, dispute a claim, submit, adjudicate, appeal. On `ac-000021` each was accepted once and refused once with a 409 in words, and the record's queue holds exactly one job of each of its eight kinds of write, all landed. That includes the buyer's dispute, which reached the chain once although an anchor had already created the record while it was a draft. A real RPC failure mid-run hit the seal before it had a transaction; it was retried and landed. `REJECTED`, the status this script began by producing, stays proven by `ac-000019`, where a double click before the fix drew the contract's own refusal: "run 1 already judged this exact packet" |
-| `node scripts/prove-app-paths.mjs` | live | the app-side paths that were only ever unit-tested: an image with no OCR recorded `UNEXTRACTED` with its type read from the bytes, rate limiting on a real request, share-link expiry by wall clock answering 410, and the compare and report screens rendering |
+| `cd web && npm run test` | 83 | the browser's half: the independent-source fingerprint pinned to the digest validators computed on chain, each rule of GenVM's whitespace normalization, and code-point capping; the manifest root against a golden from the contract's own function; act availability across states × roles (S40), with every limit read from `get_config()`; the write lifecycle against a fake client — a refusal stopped in the simulation with the contract's sentence and nothing sent, a finalized refusal and an undetermined round reported as such, no finality claimed that was not seen, no zero deposit; read pacing under the RPC's limit; VIN, OBD-II and mileage code; extraction honesty; the chain helpers |
+| `AUTOCOURT_LIVE=1 npx vitest run tests/live` | live | a clean record on the deployment of record (above), skipped without the flag |
+| `npm run verify` | gate | one contract address in the app's default, `web/.env.example` and this README |
 | `genvm-lint` | clean | AST-level GenVM validity |
 
 ## The docs
@@ -300,17 +337,24 @@ one global.
 [STANDARDS-MAP.md](docs/STANDARDS-MAP.md) — why it must be built that way ·
 [THREAT-MODEL.md](docs/THREAT-MODEL.md) — eliminated / detectable / honest limits ·
 [PROBE-REPORT.md](docs/PROBE-REPORT.md) — the measurements ·
-[design-review-findings.md](docs/design-review-findings.md) — the 38
-pre-code findings this build answers
+[design-review-findings.md](docs/design-review-findings.md) — the 38 pre-code
+findings this build answers
 
 ## Honest limits
 
-Adjudicated evidence is public, permanently — consent is per-item and
-redaction precedes submission, because afterwards it is impossible. The
-operator can refuse service but cannot forge or alter a record. Wallets
-are self-attested identity; the contract, not the login, makes a second
-wallet worthless. Extraction of uploaded files is the operator's
-testimony — detectable via dual hashes and `scripts/verify-extraction.mjs`,
-not prevented. The demo anchor allowlist trusts commit-pinned GitHub raw
-as a stand-in registry; a production deployment would list actual
-registries.
+- **Evidence is public, permanently.** Redaction happens before publishing,
+  because afterwards it is impossible; the publish step says so and requires
+  an acknowledgement.
+- **The contract's record writes are open to any wallet.** It checks no
+  sender on sealing, evidence entry or adjudication, so a stranger can seal an
+  open record early or spend its evidence slots. That cannot change how a
+  verdict is derived or forge a signature, but it can disrupt a record; the
+  earlier build hid it behind an operator wallet, and a future contract would
+  bind those writes to the seller's address.
+- **Wallets are self-attested identity**; the contract's floors, not a login,
+  make a second wallet worthless.
+- **Extraction reads plain text and PDFs with embedded text.** Scans and
+  images enter as fingerprints with no text, and the panel is told so.
+- **The anchor allowlist trusts commit-pinned GitHub raw** as a stand-in
+  registry, and its registry extract is fictional; a production deployment
+  would list actual registries.
