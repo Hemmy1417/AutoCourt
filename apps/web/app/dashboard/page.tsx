@@ -85,15 +85,15 @@ export default function Dashboard() {
           {rows.map((a) => (
             <Link key={a.id} href={`/assessments/${a.id}`} className="card card-link">
               <div className="spread" style={{ alignItems: "flex-start" }}>
-                <div>
-                  <h3>{vehicleTitle(a.vehicle)}</h3>
-                  <p className="fine" style={{ marginTop: 4 }}>
-                    {a.myRole === "SELLER" ? "You are selling" : "Shared with you"}
-                    {" · "}opened {formatDate(a.createdAt)}
-                  </p>
-                </div>
+                <h3>{vehicleTitle(a.vehicle)}</h3>
                 <StateChip state={a.state} />
               </div>
+              {/* Full card width, so the chip never squeezes a date in two. */}
+              <p className="fine" style={{ marginTop: 6 }}>
+                {a.myRole === "SELLER" ? "You are selling" : "Shared with you"}
+                {" · "}opened{" "}
+                <span style={{ whiteSpace: "nowrap" }}>{formatDate(a.createdAt)}</span>
+              </p>
               <div className="row" style={{ marginTop: 14, flexWrap: "wrap", gap: 8 }}>
                 <span className="tag">
                   VIN <span className="tag-mono">{a.vehicle.vin}</span>

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { awaitingAppeal } from "../../lib/acts";
 import {
   evidenceClassLabel,
   formatDate,
@@ -26,6 +27,11 @@ interface RecordRef {
   vehicle: { year: number; make: string; model: string };
 }
 
+interface EvidenceRecord extends RecordRef {
+  state: string;
+  runs: { status: string; createdAt: string }[];
+}
+
 interface Settings {
   profile: { id: string; walletAddress: string; displayName: string };
   currentSessionId: string;
@@ -40,7 +46,8 @@ interface Settings {
     redactionStatus: string;
     consentedAt: string | null;
     onChainTxHash: string | null;
-    assessment: RecordRef;
+    createdAt: string;
+    assessment: EvidenceRecord;
   }[];
   shareLinks: {
     id: string;
@@ -143,6 +150,12 @@ export default function SettingsPage() {
                       <span className="dot" />
                       Public on chain ↗
                     </a>
+                  ) : e.assessment.state !== "DRAFT" &&
+                    e.consentedAt &&
+                    !awaitingAppeal(e, e.assessment.runs) ? (
+                    <Chip tone="bad" title="Submitted with the packet, so it is public permanently.">
+                      Published with the packet
+                    </Chip>
                   ) : e.consentedAt ? (
                     <Chip tone="warn">Consented, not yet submitted</Chip>
                   ) : (

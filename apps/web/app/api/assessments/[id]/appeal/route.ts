@@ -16,6 +16,7 @@ import {
   type ItemForPacket,
 } from "../../../../../lib/packet.js";
 import { statePhrase } from "../../../../../lib/present.js";
+import { awaitingAppeal } from "../../../../../lib/acts.js";
 import { allowBoth } from "../../../../../lib/ratelimit.js";
 import {
   audit,
@@ -67,7 +68,7 @@ export async function POST(
       );
 
     const newItems = assessment.evidenceItems.filter(
-      (i) => newItemRowIds.includes(i.id) && !i.onChainTxHash,
+      (i) => newItemRowIds.includes(i.id) && awaitingAppeal(i, assessment.runs),
     );
     if (newItems.length !== newItemRowIds.length)
       throw badRequest("an appeal can only include new, unsubmitted items from this record");

@@ -16,6 +16,7 @@ import {
   nextActionText,
   recordNumber,
   vehicleTitle,
+  verdictLabel,
 } from "../../../../lib/present";
 import { api, EXPLORER, shortHash } from "../../../components/api";
 import {
@@ -99,7 +100,13 @@ export default function Report() {
       <section className="section" style={{ maxWidth: 720, margin: "0 auto" }}>
         <div className="card" style={{ padding: 30 }}>
           <p className="eyebrow">{[title, recordNumber(data.onChainId)].filter(Boolean).join(" · ")}</p>
-          <h2 style={{ marginTop: 6 }}>No verdict to show yet</h2>
+          <h2 style={{ marginTop: 6 }}>
+            {data.supersededRecord
+              ? "Judged on an earlier contract"
+              : v.total_runs === 0
+                ? "No verdict to show yet"
+                : "No verdict stands"}
+          </h2>
           {data.supersededRecord ? (
             <>
               <p className="muted" style={{ marginTop: 12 }}>
@@ -153,7 +160,10 @@ export default function Report() {
   const declared = new Map(
     (detail?.vehicle.claims ?? []).map((c) => [c.claimId, c.declaredValue]),
   );
-  const raised = FLAGS.filter((f) => v.flags?.[f.key]);
+  // A flag that IS the headline is not shown again beside it.
+  const raised = FLAGS.filter(
+    (f) => v.flags?.[f.key] && f.label !== verdictLabel(v.rollup ?? ""),
+  );
   // The verdict view does not carry the identity result; the record's
   // copy, read from the contract when the record opened, does.
   const identity = v.identity_status || detail?.identityStatus || "";
@@ -320,6 +330,10 @@ export default function Report() {
                       <td>
                         {a.txHash ? (
                           <CopyText value={a.txHash} short={shortHash(a.txHash, 8)} />
+                        ) : a.status === "SUCCESS" ? (
+                          // A recorded verdict IS on chain; only its hash was
+                          // never indexed here (records linked from the chain).
+                          <span className="fine">Not indexed in this app; the verdict is on chain</span>
                         ) : (
                           <span className="fine">None — it never reached the chain</span>
                         )}

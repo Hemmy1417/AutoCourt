@@ -949,3 +949,16 @@ textarea::placeholder {
     transform: rotate(360deg);
   }
 }
+
+/* A form of short fields: two even columns, one on a phone. */
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 14px;
+}
+
+@media (max-width: 560px) {
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+}

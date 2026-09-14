@@ -29,7 +29,17 @@ export async function GET(req: Request): Promise<Response> {
           redactionStatus: true,
           consentedAt: true,
           onChainTxHash: true,
-          assessment: { select: { onChainId: true, vehicle: VEHICLE } },
+          createdAt: true,
+          // Enough to tell a published item from one still private, even
+          // for records indexed from the chain, which carry no tx hashes.
+          assessment: {
+            select: {
+              onChainId: true,
+              state: true,
+              vehicle: VEHICLE,
+              runs: { select: { status: true, createdAt: true } },
+            },
+          },
         },
       }),
       prisma.shareLink.findMany({

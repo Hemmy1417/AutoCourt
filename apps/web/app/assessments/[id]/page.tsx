@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { actsFor, type Act } from "../../../lib/acts";
+import { actsFor, awaitingAppeal, type Act } from "../../../lib/acts";
 import { attestationMessage } from "../../../lib/attest";
 import {
   attemptLabel,
@@ -71,6 +71,7 @@ interface Detail {
     kind: string;
     txHash: string | null;
     errorText: string;
+    createdAt: string;
   }[];
 }
 
@@ -90,6 +91,7 @@ interface EvidenceRow {
   redactionStatus: string;
   consentedAt: string | null;
   onChainTxHash: string | null;
+  createdAt: string;
   extraction: { status: string; normalizedText: string } | null;
   observations: {
     docDate: string;
@@ -208,9 +210,10 @@ export default function AssessmentDossier() {
     // do not block the act — the contract refuses for itself, and a
     // guess here would deny an appeal the contract would have allowed.
     maxRuns: detail.maxRuns ?? Number.POSITIVE_INFINITY,
-    newAppealEvidenceCount: detail.evidenceItems.filter(
-      (i) => !i.onChainTxHash && detail.state === "ADJUDICATED",
-    ).length,
+    newAppealEvidenceCount:
+      detail.state === "ADJUDICATED"
+        ? detail.evidenceItems.filter((i) => awaitingAppeal(i, detail.runs)).length
+        : 0,
     freshDisputeCount: 0, // refined on the appeal screen
     hasOnChainId: Boolean(detail.onChainId),
   });
@@ -539,7 +542,7 @@ function ActsCard({
         </p>
       )}
       <ErrorNotice error={error} />
-      {detail.onChainId ? (
+      {detail.onChainId && detail.state !== "DRAFT" ? (
         <>
           <div className="divider" />
           <Link className="link small" href={`/assessments/${detail.id}/receipt`}>
@@ -1290,7 +1293,7 @@ function AnchorCard({
   }, []);
 
   return (
-    <div className="card">
+    <div className="card card-dashed">
       <h3>Add an independent source</h3>
       <p className="muted small" style={{ marginTop: 6 }}>
         Unlike a document you upload, this one is fetched by{" "}
@@ -1385,7 +1388,7 @@ function UploadCard({
   const [error, setError] = useState<unknown>(null);
 
   return (
-    <div className="card card-tight card-dashed">
+    <div className="card card-dashed">
       <h3 style={{ marginBottom: 6 }}>
         {detail.state === "ADJUDICATED" ? "Add appeal evidence" : "Add evidence"}
       </h3>
@@ -1395,8 +1398,8 @@ function UploadCard({
         against the side that chose it. Files are identified by their
         contents, never their extension.
       </p>
-      <div className="row form-row" style={{ marginTop: 14, flexWrap: "wrap", alignItems: "start" }}>
-        <div className="field" style={{ flex: 1, minWidth: 220, marginBottom: 8 }}>
+      <div className="form-grid" style={{ marginTop: 14 }}>
+        <div className="field" style={{ marginBottom: 8 }}>
           <label htmlFor="upload-file">File</label>
           <input
             key={inputKey}
@@ -1405,7 +1408,7 @@ function UploadCard({
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
           />
         </div>
-        <div className="field" style={{ minWidth: 220, marginBottom: 8 }}>
+        <div className="field" style={{ marginBottom: 8 }}>
           <label htmlFor="upload-class">Document type</label>
           <select
             id="upload-class"
@@ -1419,7 +1422,7 @@ function UploadCard({
             ))}
           </select>
         </div>
-        <div className="field" style={{ flex: 1, minWidth: 180, marginBottom: 8 }}>
+        <div className="field" style={{ marginBottom: 8 }}>
           <label htmlFor="upload-label">Label (optional)</label>
           <input
             id="upload-label"
@@ -1430,7 +1433,7 @@ function UploadCard({
             placeholder="March service invoice"
           />
         </div>
-        <div className="field" style={{ minWidth: 160, marginBottom: 8 }}>
+        <div className="field" style={{ marginBottom: 8 }}>
           <label htmlFor="upload-date">Document date</label>
           <input
             id="upload-date"

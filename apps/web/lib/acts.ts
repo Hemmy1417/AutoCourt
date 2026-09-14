@@ -40,6 +40,25 @@ export interface Act {
   reason?: string;
 }
 
+/**
+ * Evidence that can join an appeal: added after the standing verdict, and
+ * not yet written on chain. "Not on chain" alone is not enough — a record
+ * indexed from the chain carries no transaction hashes, so every item it
+ * already judged would be offered as new, and the contract would refuse
+ * the appeal's writes as duplicates.
+ */
+export function awaitingAppeal(
+  item: { createdAt: string | Date; onChainTxHash: string | null },
+  runs: { status: string; createdAt: string | Date }[],
+): boolean {
+  if (item.onChainTxHash) return false;
+  const verdicts = runs
+    .filter((r) => r.status === "SUCCESS")
+    .map((r) => new Date(r.createdAt).getTime());
+  if (verdicts.length === 0) return false;
+  return new Date(item.createdAt).getTime() > Math.max(...verdicts);
+}
+
 export function actsFor(input: ActsInput): Act[] {
   const {
     state,

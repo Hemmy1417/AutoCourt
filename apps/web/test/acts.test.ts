@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { actsFor, type ActsInput } from "../lib/acts.js";
+import { actsFor, awaitingAppeal, type ActsInput } from "../lib/acts.js";
 
 const base: ActsInput = {
   state: "DRAFT",
@@ -105,6 +105,38 @@ describe("appeal gate", () => {
         "appeal",
       ).available,
     ).toBe(true);
+  });
+});
+
+describe("what counts as new appeal evidence", () => {
+  const verdictAt = [{ status: "SUCCESS", createdAt: "2026-09-13T12:00:00Z" }];
+
+  it("is an item added after the standing verdict and not yet on chain", () => {
+    expect(
+      awaitingAppeal({ createdAt: "2026-09-13T13:00:00Z", onChainTxHash: null }, verdictAt),
+    ).toBe(true);
+  });
+
+  it("is never an item already written on chain", () => {
+    expect(
+      awaitingAppeal({ createdAt: "2026-09-13T13:00:00Z", onChainTxHash: "0xabc" }, verdictAt),
+    ).toBe(false);
+  });
+
+  it("is never an item the verdict already judged, even with no hash stored", () => {
+    // Records indexed from the chain carry no hashes; offering their judged
+    // items as new sends writes the contract refuses as duplicates.
+    expect(
+      awaitingAppeal({ createdAt: "2026-09-13T11:00:00Z", onChainTxHash: null }, verdictAt),
+    ).toBe(false);
+  });
+
+  it("does not exist before any verdict, and a refused attempt is not one", () => {
+    const item = { createdAt: "2026-09-13T13:00:00Z", onChainTxHash: null };
+    expect(awaitingAppeal(item, [])).toBe(false);
+    expect(
+      awaitingAppeal(item, [{ status: "REJECTED", createdAt: "2026-09-13T12:00:00Z" }]),
+    ).toBe(false);
   });
 });
 

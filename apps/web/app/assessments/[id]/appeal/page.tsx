@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { awaitingAppeal } from "../../../../lib/acts";
 import { evidenceClassLabel, plural, statePhrase } from "../../../../lib/present";
 import { api } from "../../../components/api";
 import {
@@ -28,8 +29,9 @@ interface Detail {
     declaredLabel: string;
     consentedAt: string | null;
     onChainTxHash: string | null;
+    createdAt: string;
   }[];
-  runs: { status: string }[];
+  runs: { status: string; createdAt: string }[];
 }
 
 // Screen 11 — appeal / readjudication.
@@ -54,7 +56,7 @@ export default function AppealScreen() {
   // about it rather than print a number the chain might not honour.
   const runsLeft =
     detail.maxRuns === null ? null : Math.max(0, detail.maxRuns - successRuns);
-  const newItems = detail.evidenceItems.filter((i) => !i.onChainTxHash);
+  const newItems = detail.evidenceItems.filter((i) => awaitingAppeal(i, detail.runs));
 
   if (detail.state !== "ADJUDICATED") {
     return (
