@@ -19,6 +19,12 @@ const E2E_DATABASE_URL =
   process.env.DATABASE_URL ??
   "postgresql://autocourt:autocourt_dev@localhost:5455/autocourt_e2e";
 
+// Pinned for the test workers, which inherit this environment. A spec that
+// imports @prisma/client has the root .env loaded into its process — so
+// without this it resolves the DEV database, seeds its record there, and
+// the server under test (on this one) answers "not found" for it.
+process.env.E2E_DATABASE_URL = E2E_DATABASE_URL;
+
 export default defineConfig({
   testDir: "tests/e2e",
   timeout: 90_000,
