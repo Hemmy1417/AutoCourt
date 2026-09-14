@@ -18,6 +18,7 @@ AutoCourt reads and writes one deployment of record: `0xE26B3C4A36EC1a83Aa4814a9
 
 | | |
 |---|---|
+| Live app | [auto-court-web.vercel.app](https://auto-court-web.vercel.app) |
 | Contract | [`0xE26B3C4A36EC1a83Aa4814a9CA44e4b6a7EB7998`](https://explorer-studio-dev.genlayer.com/address/0xE26B3C4A36EC1a83Aa4814a9CA44e4b6a7EB7998) |
 | Network | GenLayer Studio Next, chain 61997 |
 | RPC | `https://studio-next.genlayer.com/api` |
@@ -27,8 +28,9 @@ AutoCourt reads and writes one deployment of record: `0xE26B3C4A36EC1a83Aa4814a9
 
 ## The app
 
-One web app in [`web/`](web) that talks to the contract directly, in the shape
-of the author's Verda repository. There is no server, database, queue or key
+One web app in [`web/`](web), live at
+[auto-court-web.vercel.app](https://auto-court-web.vercel.app), that talks to
+the contract directly, in the shape of the author's Verda repository. There is no server, database, queue or key
 behind it:
 
 - **Reads** go from the visitor's browser straight to Studio Next, typed and
