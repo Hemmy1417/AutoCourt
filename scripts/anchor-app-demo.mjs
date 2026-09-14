@@ -3,9 +3,9 @@
  *
  *   node scripts/anchor-app-demo.mjs        (server + dev-db + dev-drain up)
  *
- * scripts/anchor-demo.mjs proves the contract half by talking to the
- * chain directly. This proves the half that matters to a user: that the
- * lane is reachable from the product at all. It signs in with a fresh
+ * This proves that the lane is reachable from the product at all;
+ * scripts/prove-clean-record.mjs carries a source from this repository
+ * all the way to a VERIFIED verdict. It signs in with a fresh
  * wallet, is refused when it names a party-controlled source, adds an
  * allowlisted one, and waits for the drain to carry it to the chain —
  * where every validator fetches it and must agree before it can be

@@ -1,0 +1,20 @@
+EASTFIELD VEHICLE REGISTRY - VEHICLE RECORD EXTRACT
+Extract reference: VRX-2026-041522
+Issued: 2026-04-15
+
+VIN: 1HGCM82633A004352
+Vehicle: Honda Accord, 2003, 4-door, silver
+Registration mark: EF03 HNA
+Registration status: registered; roadworthiness certificate valid to 2027-03-07
+
+Odometer readings reported to the registry at annual roadworthiness inspections:
+2023-03-10  69,850 miles
+2024-03-12  74,118 miles
+2025-03-04  81,960 miles
+2026-03-07  87,432 miles
+
+Accident, damage and total-loss markers: none on file
+Stolen vehicle marker: none on file
+Outstanding finance: none on file
+
+This extract reproduces the registry record for the VIN above as held on the date of issue.
