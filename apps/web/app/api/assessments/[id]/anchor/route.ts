@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { prisma } from "@autocourt/db";
 
 import { clientIp, requireUser } from "../../../../../lib/auth.js";
 import { chain } from "../../../../../lib/chain.js";
@@ -15,6 +14,7 @@ import {
   ensureCreateJob,
   enqueueJob,
   requireAccess,
+  withRecordLock,
 } from "../../../../../lib/service.js";
 
 /**
@@ -88,56 +88,91 @@ export async function POST(
       );
     }
     if (!fetched.trim()) throw badRequest("that source returned nothing");
-
     const expected = sha(fetched);
-    const count = await prisma.evidenceItem.count({ where: { assessmentId: id } });
-    const evidenceId = `E-${String(count + 1).padStart(3, "0")}`;
 
-    const item = await prisma.evidenceItem.create({
-      data: {
-        assessmentId: id,
-        evidenceId,
-        uploaderId: user.id,
-        uploaderRole: role,
-        lane: "ANCHOR",
-        declaredClass: "EXTERNAL_SOURCE_RESULT",
-        declaredLabel,
-        mimeType: "text/plain",
-        fileSha256: expected,
-        // Placeholders until the chain says what it actually stored:
-        // the contract normalizes and hashes the bytes IT fetched.
-        textSha256: expected,
-        extractorVersion: "anchor-inline-1",
-        // App-side only, never a contract value: this item is on its way
-        // to the chain and has no verdict-bearing status yet.
-        status: "PENDING_ENTRY",
-        anchorUrl: url,
-        // An anchor is not a party's document, so there is nothing for a
-        // party to consent to publishing or to attest to.
-        consentedAt: new Date(),
-        extraction: {
-          create: {
-            status: "EXTRACTED",
-            normalizedText: fetched.split(/\s+/).join(" ").slice(0, 6_000),
+    // Everything from here holds the record's row. Unlocked, a double
+    // click added the source twice and — because each request found no
+    // CREATE queued yet — put the record on chain twice, one copy an
+    // orphan paid for in fees. The state is checked again under the lock:
+    // the fetch above takes seconds, and the packet may have been sealed
+    // while it ran.
+    const item = await withRecordLock(id, async (db) => {
+      const fresh = await db.assessment.findUniqueOrThrow({
+        where: { id },
+        select: { state: true },
+      });
+      if (fresh.state !== "DRAFT") {
+        throw conflict(
+          `independent sources enter before submission (state: ${fresh.state})`,
+        );
+      }
+      // One reading per source. The contract fetches the page itself; a
+      // second copy is the same document counted again, not corroboration.
+      const already = await db.evidenceItem.findFirst({
+        where: { assessmentId: id, lane: "ANCHOR", anchorUrl: url },
+        select: { evidenceId: true },
+      });
+      if (already) {
+        throw conflict(
+          `this source is already on the record as ${already.evidenceId}`,
+        );
+      }
+
+      const count = await db.evidenceItem.count({ where: { assessmentId: id } });
+      const evidenceId = `E-${String(count + 1).padStart(3, "0")}`;
+      const created = await db.evidenceItem.create({
+        data: {
+          assessmentId: id,
+          evidenceId,
+          uploaderId: user.id,
+          uploaderRole: role,
+          lane: "ANCHOR",
+          declaredClass: "EXTERNAL_SOURCE_RESULT",
+          declaredLabel,
+          mimeType: "text/plain",
+          fileSha256: expected,
+          // Placeholders until the chain says what it actually stored:
+          // the contract normalizes and hashes the bytes IT fetched.
+          textSha256: expected,
+          extractorVersion: "anchor-inline-1",
+          // App-side only, never a contract value: this item is on its
+          // way to the chain and has no verdict-bearing status yet.
+          status: "PENDING_ENTRY",
+          anchorUrl: url,
+          // An anchor is not a party's document, so there is nothing for
+          // a party to consent to publishing or to attest to.
+          consentedAt: new Date(),
+          extraction: {
+            create: {
+              status: "EXTRACTED",
+              normalizedText: fetched.split(/\s+/).join(" ").slice(0, 6_000),
+            },
           },
         },
-      },
-      include: { extraction: true },
+        include: { extraction: true },
+      });
+
+      // The contract must know this assessment before a write can address
+      // it — an anchor may be the FIRST thing that puts it on chain.
+      await ensureCreateJob(id, db);
+      await enqueueJob(id, "SUBMIT_ANCHOR", {
+        itemJson: JSON.stringify({
+          evidence_id: evidenceId,
+          declared_class: "EXTERNAL_SOURCE_RESULT",
+          declared_label: declaredLabel,
+          url,
+          expected_sha256: expected,
+        }),
+      }, db);
+      return created;
     });
 
-    // The contract must know this assessment before a write can address
-    // it — an anchor may be the FIRST thing that puts it on chain.
-    await ensureCreateJob(id);
-    await enqueueJob(id, "SUBMIT_ANCHOR", {
-      itemJson: JSON.stringify({
-        evidence_id: evidenceId,
-        declared_class: "EXTERNAL_SOURCE_RESULT",
-        declared_label: declaredLabel,
-        url,
-        expected_sha256: expected,
-      }),
-    });
-    await audit(user.id, "ANCHOR_ADDED", { evidenceId, url, expected }, item.id);
+    await audit(
+      user.id,
+      "ANCHOR_ADDED",
+      { evidenceId: item.evidenceId, url, expected },
+      item.id,
+    );
     return Response.json({ item, expected }, { status: 201 });
   } catch (e) {
     return errorResponse(e);

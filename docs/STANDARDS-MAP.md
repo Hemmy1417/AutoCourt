@@ -262,7 +262,7 @@ standing verdict never read).
 | Intake receipts hold | brief §16, S40 | the invariant test proving a party's recorded evidence/disputes appear in the next packet — or the run records their absence — passes |
 | Publicity consent is live | brief §15, S12 | the verbatim publicity statement (ARCHITECTURE §8.2) appears in the consent step, the settings screen, and the README, character-identical |
 | Secrets | template §1.4 | no keys, mnemonics or tokens in the repo; `.env` gitignored with `.env.example` committed |
-| Test claims | S11, S30 | counts stated only from a run in this session; invariant tests exist for concurrency (two runs racing one assessment — guarded by the §4.1 preconditions they verify) and post-terminal actions (evidence after verdict, appeal after appeal, re-adjudicate past MAX_RUNS) |
+| Test claims | S11, S30 | counts stated only from a run in this session; invariant tests exist for concurrency (two runs racing one assessment — guarded twice: the contract's §4.1 preconditions refuse a second judgment of one packet, and the app's claim lets only one of two simultaneous requests queue anything at all, so the refusal is never paid for; `apps/web/test/claim.db.test.ts` pins the claim and record lock against real PostgreSQL, and `scripts/prove-double-clicks.mjs` sends every state-moving act twice at once through the live product) and post-terminal actions (evidence after verdict, appeal after appeal, re-adjudicate past MAX_RUNS) |
 
 ## Standards consciously N/A here, and why
 

@@ -7,7 +7,12 @@ import {
   tooMany,
 } from "../../../../../lib/errors.js";
 import { allowBoth } from "../../../../../lib/ratelimit.js";
-import { audit, enqueueJob, requireAccess } from "../../../../../lib/service.js";
+import {
+  audit,
+  claimAndQueue,
+  enqueueJob,
+  requireAccess,
+} from "../../../../../lib/service.js";
 
 /** Either recorded party may request adjudication once the packet is on-chain. */
 export async function POST(
@@ -27,22 +32,19 @@ export async function POST(
           ? "an adjudication is already in flight"
           : `adjudication needs a submitted packet (state: ${assessment.state})`,
       );
-    // CLAIM THE RECORD BEFORE QUEUEING ANYTHING. Reading the state and
-    // then writing it are two steps, and two requests a millisecond
-    // apart both passed the check above before either wrote PROCESSING
-    // — so a double click, or two open tabs, put two adjudications on
-    // the chain. The contract refused the second ("already judged this
-    // exact packet") and no verdict was corrupted, but it cost a real
-    // transaction and a real fee for nothing. This update is the claim:
-    // it only matches from the state we just validated, so exactly one
-    // request can win it.
-    const claimed = await prisma.assessment.updateMany({
-      where: { id, state: assessment.state },
-      data: { state: "PROCESSING" },
-    });
-    if (claimed.count === 0) throw conflict("an adjudication is already in flight");
-
-    await enqueueJob(id, "ADJUDICATE", {});
+    // A double click, or two open tabs, used to put two adjudications on
+    // the chain: both requests passed the check above before either wrote
+    // PROCESSING. The contract refused the second ("already judged this
+    // exact packet"), but it cost a real transaction and fee for nothing.
+    await claimAndQueue(
+      id,
+      {
+        from: assessment.state,
+        to: "PROCESSING",
+        lost: "an adjudication is already in flight",
+      },
+      (db) => enqueueJob(id, "ADJUDICATE", {}, db),
+    );
     await audit(user.id, "ADJUDICATION_REQUESTED", {});
     return Response.json({
       assessment: await prisma.assessment.findUnique({ where: { id } }),

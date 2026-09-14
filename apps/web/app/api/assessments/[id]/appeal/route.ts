@@ -16,7 +16,12 @@ import {
   type ItemForPacket,
 } from "../../../../../lib/packet.js";
 import { allowBoth } from "../../../../../lib/ratelimit.js";
-import { audit, enqueueJob, requireAccess } from "../../../../../lib/service.js";
+import {
+  audit,
+  claimAndQueue,
+  enqueueJob,
+  requireAccess,
+} from "../../../../../lib/service.js";
 
 /**
  * Appeal: NEW evidence items (uploaded after the verdict, consented)
@@ -71,7 +76,7 @@ export async function POST(
         evidenceIds: unconsented.map((i) => i.evidenceId),
       });
 
-    for (const i of newItems) {
+    const itemWrites = newItems.map((i) => {
       const packetItem: ItemForPacket = {
         evidenceId: i.evidenceId,
         declaredClass: i.declaredClass,
@@ -83,7 +88,7 @@ export async function POST(
         textSha256: i.textSha256,
         extractorVersion: i.extractorVersion,
         status: i.status === "EXTRACTED" ? "EXTRACTED" : "UNEXTRACTED",
-      uploaderSignature: i.uploaderSignature,
+        uploaderSignature: i.uploaderSignature,
         observations: i.observations
           .filter((o) => o.odometerReading !== null)
           .map((o) => ({
@@ -98,21 +103,35 @@ export async function POST(
         captureDate: i.captureDate,
         consentedAt: i.consentedAt,
       };
-      await enqueueJob(id, "SUBMIT_APPEAL_EVIDENCE", {
-        itemJson: evidenceWritePayload(packetItem),
-      });
-    }
-    await enqueueJob(id, "READJUDICATE", {
-      appellantAccount: user.walletAddress,
-      grounds,
+      return evidenceWritePayload(packetItem);
     });
-    const appeal = await prisma.appeal.create({
-      data: { assessmentId: id, appellantId: user.id, grounds },
-    });
-    const updated = await prisma.assessment.update({
-      where: { id },
-      data: { state: "PROCESSING" },
-    });
+
+    // A double click used to file two appeals: each wrote its evidence to
+    // the chain and queued its own re-adjudication, spending a second run
+    // of the few the contract allows. Only one request can claim the
+    // standing verdict.
+    const appeal = await claimAndQueue(
+      id,
+      {
+        from: "ADJUDICATED",
+        to: "PROCESSING",
+        lost: "an appeal is already in flight",
+      },
+      async (db) => {
+        for (const itemJson of itemWrites)
+          await enqueueJob(id, "SUBMIT_APPEAL_EVIDENCE", { itemJson }, db);
+        await enqueueJob(
+          id,
+          "READJUDICATE",
+          { appellantAccount: user.walletAddress, grounds },
+          db,
+        );
+        return db.appeal.create({
+          data: { assessmentId: id, appellantId: user.id, grounds },
+        });
+      },
+    );
+    const updated = await prisma.assessment.findUnique({ where: { id } });
     await audit(user.id, "APPEAL_FILED", {
       grounds: grounds.slice(0, 120),
       newItems: newItems.map((i) => i.evidenceId),

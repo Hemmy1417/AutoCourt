@@ -268,10 +268,12 @@ auditable. `readjudicate` is callable only from `ADJUDICATED`. Retrying a
 | validator "cannot obtain bytes" (uploaded lane) | impossible by construction — judged bytes are consensus state; the only byte-level failure is a state read failure = transaction failure, state unchanged |
 | anchor fetch: all nodes unreachable or hash-mismatch | item enters as `SOURCE_UNAVAILABLE` status; never an adverse finding |
 | anchor fetch: reachability split | no state change; retry — never a verdict from partial sight |
-| LLM/transport failure mid-round | transient failure → transaction fails, state unchanged; worker retries bounded-N then `Assessment → FAILED` with a retry path (S26 exit) |
+| transport failure before a transaction exists | nothing reached the chain, so the worker retries, bounded by the job's attempts; a failure to READ a submitted transaction is never an attempt — its hash is kept and polled |
+| LLM failure mid-round (the round ends without a verdict) | state unchanged on chain; the attempt is recorded as a `FAILED` or `REJECTED` run with its transaction hash and `Assessment → FAILED`. The queue never re-runs a judgment: the retry is either party's (S26 exit), each its own recorded attempt |
+| a step fails mid-sequence | the steps queued behind it fail with it, naming it ("an earlier step failed (SEAL)"), so none addresses a record in a state it never reached. Only those: anything queued afterwards is a new attempt and runs. A buyer's dispute depends on nothing but the record existing, so it neither fails with an adjudication ahead of it nor fails a seal behind it |
 | malformed / structurally invalid model output | never survives consensus: the leader is refused and rotated, and if no valid output emerges the transaction fails with state unchanged; the app records the refused attempt as a `REJECTED` run with its transaction hash — the chain records only judgments that survived consensus |
 | ungrounded quote on one finding | **not** a run failure — drop-and-downgrade (§4.5) |
-| protocol-level UNDETERMINED | no contract outcome; poll and retry; never mapped to a verdict |
+| protocol-level UNDETERMINED / CANCELED | no contract outcome, never mapped to a verdict. For a write (evidence, seal, dispute) the ended transaction is dropped and the next pass sends a NEW attempt with its own hash, bounded; for a judgment, the failed-round row above. A status that has not answered yet is polled, never resubmitted — a lost response is not a refusal |
 
 ### 4.3 Panel output and equivalence
 

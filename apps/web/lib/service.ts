@@ -3,7 +3,7 @@
  * intake, job enqueueing, and the audit trail. Route files stay thin.
  */
 
-import { prisma } from "@autocourt/db";
+import { prisma, type PrismaClient } from "@autocourt/db";
 import {
   extractEvidence,
   EXTRACTOR_VERSION,
@@ -16,7 +16,13 @@ import {
   type RedactionSpan,
 } from "@autocourt/evidence";
 
-import { badRequest, forbidden, notFound } from "./errors.js";
+import { badRequest, conflict, forbidden, notFound } from "./errors.js";
+
+/** The client, or a transaction inside it: helpers that write take either. */
+export type Db = Pick<
+  PrismaClient,
+  "assessment" | "job" | "appeal" | "evidenceItem" | "claimDispute"
+>;
 
 const storage = new LocalDiskStorage(
   process.env.EVIDENCE_ROOT ?? "var/evidence",
@@ -33,8 +39,8 @@ export interface AccessResult {
   role: Role;
 }
 
-async function loadAssessment(id: string) {
-  return prisma.assessment.findUnique({
+export async function loadAssessment(id: string, db: Db = prisma) {
+  return db.assessment.findUnique({
     where: { id },
     include: {
       vehicle: {
@@ -197,8 +203,9 @@ export async function enqueueJob(
   assessmentId: string,
   kind: string,
   payload: Record<string, unknown>,
+  db: Db = prisma,
 ): Promise<string> {
-  const job = await prisma.job.create({
+  const job = await db.job.create({
     data: {
       assessmentId,
       kind,
@@ -219,15 +226,20 @@ export function readOriginal(fileSha256: string): Promise<Uint8Array> {
  * an independent source added beforehand queued a write against a record
  * the contract had never heard of — its job would wait for an on-chain
  * id forever. Anything that needs the record to exist calls this first;
- * it is idempotent.
+ * it is idempotent — but only when called under the record's lock (a claim
+ * or withRecordLock). Two unlocked calls can both find no CREATE, and the
+ * record goes on chain twice.
  */
-export async function ensureCreateJob(assessmentId: string): Promise<void> {
-  const a = await prisma.assessment.findUnique({
+export async function ensureCreateJob(
+  assessmentId: string,
+  db: Db = prisma,
+): Promise<void> {
+  const a = await db.assessment.findUnique({
     where: { id: assessmentId },
     include: { vehicle: { include: { claims: true, seller: true } } },
   });
   if (!a || a.onChainId) return;
-  const already = await prisma.job.findFirst({
+  const already = await db.job.findFirst({
     where: { assessmentId, kind: "CREATE", state: { in: ["PENDING", "DONE"] } },
   });
   if (already) return;
@@ -245,5 +257,67 @@ export async function ensureCreateJob(assessmentId: string): Promise<void> {
         declared_value: c.declaredValue,
       })),
     ),
-  });
+  }, db);
+}
+
+/**
+ * Move a record out of the state a route just checked, and queue the work
+ * that move promises — together, or not at all.
+ *
+ * Checking a state and then writing it are two steps, and two requests a
+ * millisecond apart (a double click, two open tabs) both pass the check.
+ * So the claim only matches the state that was checked: exactly one
+ * request wins it, and every other one is refused with `lost`. The row
+ * stays locked until commit, so a loser sees the winner's finished work,
+ * never a half-queued chain.
+ *
+ * The jobs go inside because a claim with nothing queued behind it strands
+ * the record in a state no route will move it out of. And `queue` runs
+ * AFTER the claim, so whatever it reads cannot change underneath it.
+ */
+export async function claimAndQueue<T>(
+  assessmentId: string,
+  claim: { from: string; to: string; packetVersion?: number; lost: string },
+  queue: (db: Db) => Promise<T>,
+): Promise<T> {
+  return prisma.$transaction(
+    async (tx) => {
+      const claimed = await tx.assessment.updateMany({
+        where: { id: assessmentId, state: claim.from },
+        data: {
+          state: claim.to,
+          ...(claim.packetVersion === undefined
+            ? {}
+            : { packetVersion: claim.packetVersion }),
+        },
+      });
+      if (claimed.count === 0) throw conflict(claim.lost);
+      return queue(tx);
+    },
+    { timeout: 20_000 },
+  );
+}
+
+/**
+ * Run `fn` holding the record's row, for writes that change no state but
+ * must not interleave — with each other, or with a claim. Two sources added
+ * at once would each find no CREATE queued and put the record on chain
+ * twice; a source added while the packet is being sealed would miss the
+ * seal it belongs to.
+ */
+export async function withRecordLock<T>(
+  assessmentId: string,
+  fn: (db: Db) => Promise<T>,
+): Promise<T> {
+  return prisma.$transaction(
+    async (tx) => {
+      const locked = await tx.assessment.updateMany({
+        where: { id: assessmentId },
+        data: { updatedAt: new Date() },
+      });
+      if (locked.count === 0) throw notFound("assessment");
+      return fn(tx);
+    },
+    { timeout: 20_000 },
+  );
 }
