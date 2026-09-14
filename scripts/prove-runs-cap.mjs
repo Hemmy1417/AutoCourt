@@ -26,6 +26,9 @@ import { createAccount, createClient } from "genlayer-js";
 import { studioDevnet } from "genlayer-js/chains";
 import { readFileSync } from "node:fs";
 
+// The COMPILED client, the same one the app and the worker use. Run
+// `npx tsc -b` first; plain Node cannot load the TypeScript source.
+import { AutoCourtChain } from "../packages/genlayer-client/dist/index.js";
 import { Actor, BASE, asserter, logger, settled, upload } from "./lib/harness.mjs";
 
 const RPC = process.env.GENLAYER_RPC_URL ?? "https://studio-next.genlayer.com/api";
@@ -159,28 +162,6 @@ const KEYS = JSON.parse(readFileSync(new URL("../.data/keys.json", import.meta.u
 const client = createClient({ chain, account: createAccount(KEYS.OPERATOR.pk) });
 const FEE_FLOOR = 10n ** 15n;
 
-// A refusal sentence arrives as plain text, as a byte array, or
-// base64-wrapped depending on the runner — take it however it comes.
-function decodePayload(raw) {
-  if (raw == null) return "";
-  if (Array.isArray(raw)) return Buffer.from(raw).toString("utf8");
-  const s = String(raw);
-  if (/^[A-Za-z0-9+/=]+$/.test(s) && s.length % 4 === 0 && !/\s/.test(s)) {
-    const decoded = Buffer.from(s, "base64").toString("utf8");
-    if (/at most|EXPECTED|run/i.test(decoded)) return decoded;
-  }
-  return s;
-}
-
-async function rpcCall(method, params) {
-  const res = await fetch(RPC, {
-    method: "POST",
-    headers: { "content-type": "application/json", "user-agent": "Mozilla/5.0 autocourt" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-  });
-  return JSON.parse(await res.text());
-}
-
 log(`calling readjudicate directly on ${CONTRACT} for ${afterFirst.onChainId}`);
 const est = await client.estimateTransactionFees();
 const hash = await client.writeContract({
@@ -194,29 +175,29 @@ const hash = await client.writeContract({
   },
 });
 log(`direct tx ${hash}`);
-let payload = "", execResult = "";
-for (let i = 0; i < 90; i++) {
-  await sleep(4000);
-  const t = (await rpcCall("eth_getTransactionByHash", [hash])).result;
-  const status = t?.status ?? t?.statusName;
-  if (["FINALIZED", "CANCELED", "UNDETERMINED"].includes(status)) {
-    const arr = t?.consensus_data?.leader_receipt ?? [];
-    const leader = arr.find((x) => x?.mode !== "validator") ?? arr[0];
-    execResult = leader?.execution_result ?? "";
-    payload = decodePayload(leader?.result?.payload);
-    log(`direct call: ${status} · ${execResult} · ${payload.slice(0, 160)}`);
-    break;
-  }
-}
-hard(execResult === "ERROR",
+
+// Decoding a refusal is the product's own job, and it already knows the
+// shape this network uses — `result` IS the base64 string here, not
+// `result.payload`. A second decoder written from scratch got that
+// wrong and reported an empty refusal, so this asks the client.
+const status = await new AutoCourtChain({
+  rpcUrl: RPC,
+  contractAddress: CONTRACT,
+  privateKey: KEYS.OPERATOR.pk,
+}).waitFinality(hash);
+const refusal = status.refusalText ?? "";
+log(`direct call: ${status.status} · ${status.leaderResult} · ${refusal}`);
+
+hard(status.leaderResult === "ERROR",
      "the contract itself refuses a run past the cap, to a key calling it directly");
-hard(/at most/i.test(payload) && new RegExp(String(MAX)).test(payload),
+hard(/at most/i.test(refusal) && new RegExp(String(MAX)).test(refusal),
      "and it says why, in its own words, quoting its own limit");
 
 console.log("\n============== RUNS CAP ==============");
 console.log(`${afterFirst.onChainId}: ${full.verdict.total_runs}/${MAX} runs, standing run ${full.verdict.standing_run}`);
 console.log(`app      → ${refused.status} ${refusedBody?.message ?? ""}`);
-console.log(`contract → ${execResult} ${payload.slice(0, 120)}`);
+console.log(`contract → ${status.leaderResult} ${refusal}`);
+console.log(`           tx ${hash}`);
 console.log(failures.length === 0
   ? "RUNS CAP PROVEN LIVE — refused at the app, and refused by the contract itself."
   : `INCOMPLETE — ${failures.length}: ${failures.join("; ")}`);
