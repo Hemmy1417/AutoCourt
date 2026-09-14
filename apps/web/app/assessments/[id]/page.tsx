@@ -273,8 +273,10 @@ function IdentityRow({
                 </Link>
               </div>
               <p className="muted small" style={{ marginTop: 8 }}>
-                Run {successRuns} of at most 4. New evidence or a new dispute
-                opens an appeal — prior runs stay on the record, immutable.
+                Run {successRuns}
+                {detail.maxRuns === null ? "" : ` of at most ${detail.maxRuns}`}.
+                New evidence or a new dispute opens an appeal — prior runs
+                stay on the record, immutable.
               </p>
             </div>
           ) : null}

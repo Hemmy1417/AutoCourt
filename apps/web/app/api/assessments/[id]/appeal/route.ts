@@ -1,7 +1,10 @@
 import { prisma } from "@autocourt/db";
 
 import { clientIp, requireUser } from "../../../../../lib/auth.js";
-import { maxRunsPerAssessment } from "../../../../../lib/chainconfig.js";
+import {
+  maxNewItemsPerAppeal,
+  maxRunsPerAssessment,
+} from "../../../../../lib/chainconfig.js";
 import {
   badRequest,
   conflict,
@@ -51,8 +54,11 @@ export async function POST(
     const newItemRowIds: string[] = Array.isArray(body?.newEvidenceIds)
       ? body.newEvidenceIds.map(String)
       : [];
-    if (newItemRowIds.length > 4)
-      throw badRequest("at most 4 new items per appeal (the contract's cap)");
+    const maxNewItems = await maxNewItemsPerAppeal();
+    if (maxNewItems !== null && newItemRowIds.length > maxNewItems)
+      throw badRequest(
+        `at most ${maxNewItems} new items per appeal (the contract's cap)`,
+      );
 
     const newItems = assessment.evidenceItems.filter(
       (i) => newItemRowIds.includes(i.id) && !i.onChainTxHash,

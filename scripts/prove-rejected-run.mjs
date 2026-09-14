@@ -1,5 +1,5 @@
 /**
- * A REJECTED run, honestly produced.
+ * Two adjudications at once: what it used to cost, and what it costs now.
  *
  *   node scripts/prove-rejected-run.mjs      (server + dev-db + worker up)
  *
@@ -8,27 +8,45 @@
  * refused exists only as an app-side row: the attempt, its refusal
  * sentence, and its transaction hash, kept rather than dropped.
  *
- * That path had never run. The temptation is to force it by writing the
- * row or poisoning a job, which would prove nothing — a status I typed
- * in myself is not evidence that the product records refusals.
- *
- * So this uses a refusal the contract issues on its own, from something
+ * That path had never run. Forcing it by writing the row would have
+ * proven nothing — a status typed in by hand is not evidence that the
+ * product records refusals — so it was reached instead through something
  * users genuinely do: asking for adjudication twice at once. A double
- * click, or two open tabs. Both requests see a submitted packet, both
- * are accepted, and both reach the chain. The first is judged. The
- * second is refused in the contract's own words — a packet that has not
- * changed cannot be judged twice; a re-judgment is an appeal.
+ * click, or two open tabs.
  *
- * What must then be true: exactly one SUCCESS run, one REJECTED run
- * carrying the contract's sentence and its own transaction hash, and a
- * standing verdict the refused duplicate did not disturb.
+ * IT WORKED, AND IT SHOWED TWO DEFECTS.
+ *
+ * On ac-000019 both requests were accepted (200 and 200), both reached
+ * the chain, and the contract refused the second in its own words:
+ *
+ *   run 1 already judged this exact packet; a re-judgment is an appeal
+ *   tx 0x7a57a3ffde076b175622bbf9259633a4960897de536ca83462db27f4960579a4
+ *   (the judged one: 0x91fd889fc6…, run 1, SUCCESS)
+ *
+ * So the REJECTED row is real, carries the contract's sentence and its
+ * own hash, and takes no run number. The verdict was untouched. But:
+ *
+ *   1. it cost a real transaction and a real fee to learn nothing, and
+ *   2. recording the refusal set the record's state to FAILED
+ *      unconditionally. It ended ADJUDICATED only because the effects
+ *      pass happened to see the failed job before the successful one —
+ *      an unordered query. The other order leaves a record reading
+ *      FAILED with a good verdict standing, and since an appeal needs a
+ *      standing verdict, that locks both parties out of appealing.
+ *
+ * Both are fixed. The route now CLAIMS the record with a conditional
+ * update before queueing, so only one request can win; and recording a
+ * refusal never overwrites a state that has a successful run behind it.
+ *
+ * What this script proves today is the defence: two simultaneous
+ * requests, one accepted, one refused by the app, and exactly one
+ * transaction spent. The refusal path itself stays proven by ac-000019
+ * above — recorded before the defence existed, and still on chain.
  */
 import { Actor, asserter, logger, settled, upload } from "./lib/harness.mjs";
 
 const log = logger("rejected");
 const { hard, failures } = asserter(log);
-// The subject of this proof IS a failed job, so a FAILED job must not
-// abort the wait — that is the thing being looked for.
 const wait = (actor, id, label) =>
   settled(actor, id, label, { log, failOnJobFailure: false });
 
@@ -58,56 +76,42 @@ await seller.api(`/api/assessments/${a.id}/submit`, { method: "POST" });
 await wait(seller, a.id, "submit");
 
 // ── ask twice, at the same instant ──────────────────────────────────────────
-// Not contrived: this is a double click, or two open tabs. Both requests
-// read a submitted packet before either writes PROCESSING.
 const [first, second] = await Promise.all([
   seller.raw(`/api/assessments/${a.id}/adjudicate`, { method: "POST" }),
   seller.raw(`/api/assessments/${a.id}/adjudicate`, { method: "POST" }),
 ]);
+const codes = [first.status, second.status];
 const accepted = [first, second].filter((r) => r.ok).length;
-log(`two simultaneous adjudication requests: ${first.status} and ${second.status} — ${accepted} accepted`);
+log(`two simultaneous adjudication requests: ${codes.join(" and ")} — ${accepted} accepted`);
 
-if (accepted < 2) {
-  // Also a legitimate outcome, and worth saying plainly rather than
-  // reaching for the other one.
-  console.log("\n============ REJECTED RUN ============");
-  console.log(`The app serialised the duplicate itself (${first.status}/${second.status}), so the ` +
-              `contract was never asked twice and no REJECTED run could arise from this path.`);
-  console.log("NOT PROVEN — and not manufactured either. The refusal path stays unproven.");
-  console.log("======================================");
-  process.exit(2);
-}
+hard(accepted === 1,
+     "exactly one of two simultaneous adjudication requests is accepted");
+hard(codes.includes(409),
+     "the loser is told an adjudication is already in flight, in words");
 
-const done = await wait(seller, a.id, "both attempts");
+const jobs = (await seller.api(`/api/assessments/${a.id}/jobs`)).jobs
+  .filter((j) => j.kind === "ADJUDICATE");
+hard(jobs.length === 1,
+     "only one adjudication was queued, so only one transaction is ever spent");
+
+const done = await wait(seller, a.id, "adjudication");
 const runs = done.runs ?? [];
 for (const r of runs)
-  log(`run row: ${r.status} · kind ${r.kind} · run ${r.runNumber} · ` +
-      `tx ${(r.txHash ?? "—").slice(0, 14)} · ${(r.errorText ?? "").slice(0, 90)}`);
+  log(`run row: ${r.status} · kind ${r.kind} · run ${r.runNumber} · tx ${(r.txHash ?? "—").slice(0, 14)}`);
 
-const success = runs.filter((r) => r.status === "SUCCESS");
-const rejected = runs.filter((r) => r.status === "REJECTED");
+hard(runs.filter((r) => r.status === "SUCCESS").length === 1,
+     "the packet was judged exactly once");
+hard(runs.filter((r) => r.status === "REJECTED").length === 0,
+     "no wasted refusal was recorded, because none was ever sent");
+hard(done.state === "ADJUDICATED",
+     "the record carries its verdict and stays appealable");
 
-hard(success.length === 1,
-     "the packet was judged exactly once, however many times it was asked");
-hard(rejected.length === 1,
-     "the refused duplicate is kept on the record as a REJECTED run");
-hard(Boolean(rejected[0]?.txHash),
-     "the refused attempt keeps its own transaction hash — it is checkable on chain");
-hard(/already judged|at most|EXPECTED/i.test(rejected[0]?.errorText ?? ""),
-     "the record carries the contract's own refusal sentence, not a paraphrase");
-hard(rejected[0]?.runNumber === 0,
-     "a refused attempt takes no run number — it never became a run");
-
-const verdict = await seller.api(`/api/assessments/${a.id}/verdict`).catch(() => null);
-hard(verdict?.verdict?.total_runs === 1,
-     "the chain still holds exactly one run: the refusal changed nothing on it");
-
-console.log("\n============ REJECTED RUN ============");
-console.log(`${done.onChainId}: ${success.length} SUCCESS + ${rejected.length} REJECTED · state ${done.state}`);
-console.log(`refusal: ${(rejected[0]?.errorText ?? "").slice(0, 150)}`);
-console.log(`tx:      ${rejected[0]?.txHash ?? "—"}`);
+console.log("\n======== SIMULTANEOUS ADJUDICATION ========");
+console.log(`${done.onChainId}: ${codes.join("/")} · ${jobs.length} job · state ${done.state}`);
+console.log(`the refusal path itself: ac-000019, REJECTED with the contract's own sentence,`);
+console.log(`tx 0x7a57a3ffde076b175622bbf9259633a4960897de536ca83462db27f4960579a4`);
 console.log(failures.length === 0
-  ? "REJECTED RUN PROVEN — a refusal the contract issued, recorded rather than dropped."
+  ? "DEFENDED — a double click no longer reaches the chain, and a refusal cannot bury a verdict."
   : `INCOMPLETE — ${failures.length}: ${failures.join("; ")}`);
-console.log("======================================");
+console.log("===========================================");
 process.exit(failures.length === 0 ? 0 : 1);

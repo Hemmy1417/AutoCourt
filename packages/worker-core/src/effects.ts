@@ -59,6 +59,24 @@ async function resolveOnChainId(
   return null;
 }
 
+/**
+ * What a record's state becomes when an adjudication attempt fails.
+ *
+ * The rule is one sentence: A REFUSED ATTEMPT MUST NOT BURY A VERDICT
+ * THAT STANDS. Not every failed adjudication means the record failed —
+ * two requests at once both reach the chain, and the contract refuses
+ * the second because the first already judged that packet. If the state
+ * were set to FAILED regardless, a good verdict would be hidden behind a
+ * failure, a retry would be invited that the contract refuses again,
+ * and — since an appeal needs a standing verdict — both parties would
+ * lose the right to appeal, all from a double click.
+ */
+export function stateAfterFailedAdjudication(
+  hasStandingRun: boolean,
+): "ADJUDICATED" | "FAILED" {
+  return hasStandingRun ? "ADJUDICATED" : "FAILED";
+}
+
 export async function recordJobEffects(
   chainClient: AutoCourtChain,
 ): Promise<EffectsResult> {
@@ -215,6 +233,9 @@ export async function recordJobEffects(
       state: { in: ["DONE", "FAILED"] },
     },
     include: { assessment: true },
+    // Unordered, this pass produced a different final state depending on
+    // which row Postgres happened to return first.
+    orderBy: { createdAt: "asc" },
   });
   for (const job of adjJobs) {
     const already = job.txHash
@@ -260,9 +281,21 @@ export async function recordJobEffects(
           errorText: job.lastError,
         },
       });
+      // A REFUSED ATTEMPT MUST NOT BURY A VERDICT THAT STANDS. Two
+      // adjudication requests at once (a double click, two tabs) both
+      // reach the chain; the contract judges one and refuses the other
+      // as "already judged this exact packet". Marking the record FAILED
+      // here would hide a valid verdict, invite a retry the contract
+      // will refuse again — and because an appeal needs a standing
+      // verdict, it would lock the parties out of appealing at all.
+      // Whether that happened used to depend on which row this loop saw
+      // first. It no longer depends on anything.
+      const standing = await prisma.adjudicationRun.findFirst({
+        where: { assessmentId: job.assessmentId, status: "SUCCESS" },
+      });
       await prisma.assessment.update({
         where: { id: job.assessmentId },
-        data: { state: "FAILED" },
+        data: { state: stateAfterFailedAdjudication(Boolean(standing)) },
       });
       result.failuresRecorded += 1;
     }
