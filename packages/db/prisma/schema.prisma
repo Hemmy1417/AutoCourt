@@ -230,6 +230,9 @@ model AdjudicationRun {
   packetVersion Int
   manifestRoot  String     @default("")
   txHash        String? // ALWAYS kept: REJECTED/FAILED attempts are records too
+  // The job whose outcome this row records: one row per job, however many
+  // effect passes run. Not the hash — an attempt can fail before it has one.
+  jobId         String?    @unique
   errorText     String     @default("")
   reportJson    String     @default("") // the contract's derived report, cached
   createdAt     DateTime   @default(now())

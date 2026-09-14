@@ -238,10 +238,22 @@ export async function recordJobEffects(
     orderBy: { createdAt: "asc" },
   });
   for (const job of adjJobs) {
-    const already = job.txHash
-      ? await prisma.adjudicationRun.findFirst({ where: { txHash: job.txHash } })
-      : null;
-    if (already) continue;
+    await attempt(`record ${job.kind} ${job.id}`, async () => {
+    // Keyed by the JOB. Keyed by hash alone, an attempt that failed before
+    // it had one matched nothing, so every pass recorded it again — and
+    // rewrote the record's state each time, which flipped a retry already
+    // in flight back to FAILED and invited a second adjudication over it.
+    // The hash still matches rows recorded before jobs were the key.
+    const already = await prisma.adjudicationRun.findFirst({
+      where: {
+        OR: [
+          { jobId: job.id },
+          ...(job.txHash ? [{ txHash: job.txHash }] : []),
+        ],
+      },
+      select: { id: true },
+    });
+    if (already) return;
     const kind = job.kind === "ADJUDICATE" ? "ADJUDICATION" : "RE_ADJUDICATION";
     if (job.state === "DONE" && job.assessment.onChainId) {
       const verdict = await chainClient.getVerdict(job.assessment.onChainId);
@@ -254,6 +266,7 @@ export async function recordJobEffects(
           kind,
           packetVersion: job.assessment.packetVersion,
           txHash: job.txHash,
+          jobId: job.id,
           reportJson: JSON.stringify(verdict),
         },
       });
@@ -278,6 +291,7 @@ export async function recordJobEffects(
           kind,
           packetVersion: job.assessment.packetVersion,
           txHash: job.txHash,
+          jobId: job.id,
           errorText: job.lastError,
         },
       });
@@ -299,6 +313,7 @@ export async function recordJobEffects(
       });
       result.failuresRecorded += 1;
     }
+    });
   }
 
   // 5. SEAL done → SUBMITTED assessments become ready to adjudicate;

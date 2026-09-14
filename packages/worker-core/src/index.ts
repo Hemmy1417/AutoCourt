@@ -35,6 +35,7 @@ type JobRow = {
   attempts: number;
   maxAttempts: number;
   txHash: string | null;
+  createdAt: Date;
 };
 
 /** Every kind except CREATE addresses the on-chain record. */
@@ -47,6 +48,86 @@ const NEEDS_ON_CHAIN_ID = new Set([
   "ADJUDICATE",
   "READJUDICATE",
 ]);
+
+/**
+ * A judgment that ends without a verdict is re-run by the PARTIES, never
+ * by the queue (S26): a retry is their call, costs a panel round, and is
+ * recorded as its own attempt with its own hash.
+ */
+const JUDGMENTS = new Set(["ADJUDICATE", "READJUDICATE"]);
+
+/**
+ * Writes that depend on nothing but the record existing (which the
+ * on-chain-id wait below already guarantees). A buyer's dispute queued
+ * while an adjudication is in flight must not be lost because that
+ * adjudication failed, and a refused dispute must not fail a seal.
+ */
+const INDEPENDENT = ["RECORD_DISPUTE"];
+
+/** The outcomes after which a transaction can no longer land. */
+const TERMINAL = new Set(["FINALIZED", "CANCELED", "UNDETERMINED"]);
+
+/** Queue order: creation time, with the id breaking a same-millisecond tie. */
+const QUEUE_ORDER = [{ createdAt: "asc" as const }, { id: "asc" as const }];
+const queuedBefore = (job: JobRow) => [
+  { createdAt: { lt: job.createdAt } },
+  { createdAt: job.createdAt, id: { lt: job.id } },
+];
+const queuedAfter = (job: JobRow) => [
+  { createdAt: { gt: job.createdAt } },
+  { createdAt: job.createdAt, id: { gt: job.id } },
+];
+
+/**
+ * Fail a job, and with it every step queued behind it for the same record:
+ * those steps would address a record in a state it never reached.
+ *
+ * The cascade happens HERE, once, rather than as a check each later job
+ * makes against "any earlier failure". That check could never tell an
+ * abandoned step from an old attempt that had already ended — so one
+ * failure failed every job the record would ever queue, including the
+ * retry the adjudicate route offers and every appeal after it. Jobs queued
+ * after this failure is written are new attempts, made knowing about it.
+ *
+ * A job behind that already carries a hash is on the chain; it is left to
+ * be polled, because a lost response is not a refusal.
+ */
+async function failJob(
+  job: JobRow,
+  data: { lastError: string; txHash?: string | null; countAttempt: boolean },
+): Promise<void> {
+  const failed = prisma.job.update({
+    where: { id: job.id },
+    data: {
+      state: "FAILED",
+      lockedUntil: null,
+      lastError: data.lastError,
+      ...(data.txHash !== undefined ? { txHash: data.txHash } : {}),
+      ...(data.countAttempt ? { attempts: { increment: 1 } } : {}),
+    },
+  });
+  if (INDEPENDENT.includes(job.kind)) {
+    await failed;
+    return;
+  }
+  await prisma.$transaction([
+    failed,
+    prisma.job.updateMany({
+      where: {
+        assessmentId: job.assessmentId,
+        state: "PENDING",
+        txHash: null,
+        kind: { notIn: INDEPENDENT },
+        OR: queuedAfter(job),
+      },
+      data: {
+        state: "FAILED",
+        lockedUntil: null,
+        lastError: `an earlier step failed (${job.kind}), so this one cannot run`,
+      },
+    }),
+  ]);
+}
 
 function writeFor(chain: AutoCourtChain, job: JobRow) {
   const p = JSON.parse(job.payloadJson || "{}");
@@ -89,8 +170,10 @@ async function recordOutcome(
     });
     return "done";
   }
-  if (status.status === "PENDING" || status.status === "ACCEPTED") {
-    // Keep the hash; the next drain polls it. Never resubmit.
+  if (!TERMINAL.has(status.status)) {
+    // PENDING, ACCEPTED, or an answer we could not read: the transaction
+    // can still land. Keep the hash; the next drain polls it. Never
+    // resubmit.
     await prisma.job.update({
       where: { id: job.id },
       data: { state: "PENDING", txHash, lockedUntil: null },
@@ -98,20 +181,27 @@ async function recordOutcome(
     return "pending";
   }
   // CANCELED / UNDETERMINED / leader error: this ATTEMPT is over. The
-  // refusal sentence (if any) is the record; retry is a new attempt with
-  // its own hash, bounded by maxAttempts.
+  // refusal sentence (if any) is the record.
   const error =
     status.refusalText ??
     `${status.status}${status.leaderResult ? ` leader=${status.leaderResult}` : ""}`;
   const exhausted = job.attempts + 1 >= job.maxAttempts;
   const refused = Boolean(status.refusalText?.startsWith("[EXPECTED]"));
+  if (refused || exhausted || JUDGMENTS.has(job.kind)) {
+    await failJob(job, { lastError: error, txHash, countAttempt: true });
+    return "failed";
+  }
+  // Retry as a NEW attempt. Keeping the hash would only re-poll a
+  // transaction that has already ended, so the "retry" would read the same
+  // failure until the attempts ran out — a write that missed consensus once
+  // was never actually sent again. The ended attempt stays in the error.
   await prisma.job.update({
     where: { id: job.id },
     data: {
-      state: exhausted || refused ? "FAILED" : "PENDING",
+      state: "PENDING",
       attempts: { increment: 1 },
-      txHash,
-      lastError: error,
+      txHash: null,
+      lastError: `${error} (attempt ${job.attempts + 1}, tx ${txHash})`,
       lockedUntil: null,
     },
   });
@@ -137,7 +227,7 @@ export async function runPendingJobs(deps: WorkerDeps): Promise<DrainResult> {
       state: "PENDING",
       OR: [{ lockedUntil: null }, { lockedUntil: { lt: now } }],
     },
-    orderBy: { createdAt: "asc" },
+    orderBy: QUEUE_ORDER,
     // Generous, because jobs still waiting on their CREATE are skipped
     // without being worked: a small window would let a few waiters crowd
     // out every job that could actually run.
@@ -163,30 +253,23 @@ export async function runPendingJobs(deps: WorkerDeps): Promise<DrainResult> {
     // to let the next one overtake it, and a SEAL reached the contract
     // before the evidence it was meant to cover. The contract refused it
     // correctly: "sealing requires at least one evidence item".
-    const earlier = await prisma.job.findMany({
+    //
+    // Only UNFINISHED steps hold a job back. A failed one has already
+    // failed everything that was queued behind it (see failJob).
+    const unfinished = await prisma.job.findFirst({
       where: {
         assessmentId: job.assessmentId,
-        createdAt: { lt: candidate.createdAt },
-        state: { not: "DONE" },
+        state: "PENDING",
+        OR: queuedBefore(job),
       },
-      select: { state: true, kind: true },
+      select: { id: true },
     });
-    if (earlier.length > 0) {
-      const failedFirst = earlier.find((e) => e.state === "FAILED");
+    if (unfinished) {
       await prisma.job.update({
         where: { id: job.id },
-        data: failedFirst
-          ? {
-              // Everything after a failed step would address a record in
-              // a state it never reached.
-              state: "FAILED",
-              lockedUntil: null,
-              lastError: `an earlier step failed (${failedFirst.kind}), so this one cannot run`,
-            }
-          : { lockedUntil: null },
+        data: { lockedUntil: null },
       });
-      if (failedFirst) result.failed += 1;
-      else result.stillPending += 1;
+      result.stillPending += 1;
       continue;
     }
 
@@ -215,20 +298,21 @@ export async function runPendingJobs(deps: WorkerDeps): Promise<DrainResult> {
               state: { in: ["PENDING", "DONE"] },
             },
           });
-          await prisma.job.update({
-            where: { id: job.id },
-            data: creating
-              ? { lockedUntil: null }
-              : {
-                  state: "FAILED",
-                  lockedUntil: null,
-                  lastError:
-                    "the assessment was never created on chain, so this " +
-                    "write has nothing to address",
-                },
-          });
-          if (creating) result.stillPending += 1;
-          else result.failed += 1;
+          if (creating) {
+            await prisma.job.update({
+              where: { id: job.id },
+              data: { lockedUntil: null },
+            });
+            result.stillPending += 1;
+          } else {
+            await failJob(job, {
+              lastError:
+                "the assessment was never created on chain, so this " +
+                "write has nothing to address",
+              countAttempt: false,
+            });
+            result.failed += 1;
+          }
           continue;
         }
         payload.onChainId = assessment.onChainId;
@@ -241,8 +325,8 @@ export async function runPendingJobs(deps: WorkerDeps): Promise<DrainResult> {
     }
     result.drained += 1;
 
+    let txHash = job.txHash;
     try {
-      let txHash = job.txHash;
       if (!txHash) {
         // First (or fresh) attempt: submit ONCE, persist the hash before
         // waiting on anything.
@@ -259,19 +343,34 @@ export async function runPendingJobs(deps: WorkerDeps): Promise<DrainResult> {
       else if (outcome === "failed") result.failed += 1;
       else result.stillPending += 1;
     } catch (e) {
-      // Submission itself failed BEFORE a hash existed — safe to count
-      // the attempt and retry bounded; with a hash, the branch above
-      // already persisted it and the next drain polls.
-      const exhausted = job.attempts + 1 >= job.maxAttempts;
-      await prisma.job.update({
-        where: { id: job.id },
-        data: {
-          state: exhausted ? "FAILED" : "PENDING",
-          attempts: { increment: 1 },
-          lastError: String((e as Error)?.message ?? e).slice(0, 500),
-          lockedUntil: null,
-        },
-      });
+      const message = String((e as Error)?.message ?? e).slice(0, 500);
+      if (txHash) {
+        // The write IS on the chain; only reading its outcome failed.
+        // That is not an attempt, and three unreadable polls must not fail
+        // a transaction that may well have landed. Keep the hash (again, in
+        // case persisting it is what failed) and poll next pass.
+        await prisma.job.update({
+          where: { id: job.id },
+          data: { txHash, lockedUntil: null, lastError: `polling: ${message}` },
+        });
+        result.stillPending += 1;
+        continue;
+      }
+      // Submission itself failed BEFORE a hash existed — nothing reached
+      // the chain, so a retry is safe, bounded by maxAttempts.
+      if (job.attempts + 1 >= job.maxAttempts) {
+        await failJob(job, { lastError: message, countAttempt: true });
+      } else {
+        await prisma.job.update({
+          where: { id: job.id },
+          data: {
+            state: "PENDING",
+            attempts: { increment: 1 },
+            lastError: message,
+            lockedUntil: null,
+          },
+        });
+      }
       result.failed += 1;
     }
   }
