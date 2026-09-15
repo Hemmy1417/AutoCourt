@@ -1,6 +1,6 @@
 /**
- * The transaction lifecycle, carried over from Verda, where every rule below
- * was learned against Studio Next:
+ * The transaction lifecycle. Every rule below was learned against Studio
+ * Next:
  *
  *   A WRITE IS SIZED BEFORE IT IS SIGNED. Studio Next reverts a transaction
  *   with no fee distribution or a zero deposit, and genlayer-js 2.0.0-rc.1

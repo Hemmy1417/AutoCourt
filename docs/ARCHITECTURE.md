@@ -15,8 +15,8 @@ be built that way*.
 AutoCourt was first built full stack: a Next.js app with API routes,
 PostgreSQL, a job queue and a worker that sent every transaction from an
 operator's wallet. On 14 Sep the Vercel build of that monorepo failed, and the
-user directed the build into the shape of their Verda repository: one web app
-that talks to the contract directly. The contract needed no change to run
+user directed the build into a different shape: one web app that talks to the
+contract directly. The contract needed no change to run
 without an operator, because it never checked for one. That same evening it
 was redeployed to close the gap the operator had been hiding (see below), so
 the app now serves a new deployment of record. Records do not carry across
@@ -88,8 +88,8 @@ scope. Ruling, recorded so it is a decision and not an accident:
   submission.
 
 On 14 Sep 2026 the user re-ruled the product half's delivery shape: one web
-app that talks to the contract directly, like their Verda repository, in
-place of the full-stack backend. The contract discipline above is unchanged.
+app that talks to the contract directly, in place of the full-stack
+backend. The contract discipline above is unchanged.
 
 ## 1. Network and chain facts
 
@@ -221,9 +221,9 @@ distinct entry lane with a **narrow, every-validator fetch at entry**:
   sha256 of the page bytes.
 - The write is nondeterministic: **every validator fetches the URL itself**,
   hashes the bounded raw bytes (≤ 8,000), and agreement is exact-hash
-  agreement — the CredenceLend entry shape, satisfying the Verda v0.1.1 rule
-  (each validator binds the stored content to bytes *it* fetched; no
-  leader-private byte exists).
+  agreement — the CredenceLend entry shape, satisfying the fresh-source
+  provenance rule (each validator binds the stored content to bytes *it*
+  fetched; no leader-private byte exists).
 - On agreement the contract stores the deterministically-normalized text
   (in-contract whitespace collapse, not the app extractor) as the item's
   judged bytes. All nodes agreeing unreachable-or-mismatch → the item enters

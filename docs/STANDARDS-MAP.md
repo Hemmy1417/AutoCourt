@@ -29,8 +29,8 @@ that claims something.
 
 ### 1. Evidence is corroborated where it ENTERS the record — S39, S21, S28
 
-S39 (flagged blocking on Triggera, confirmed word-for-word on Verda a day
-later): evidence must be corroborated **where it enters the record**, not
+S39 (flagged blocking on Triggera, and confirmed word for word by a second
+reviewer a day later): evidence must be corroborated **where it enters the record**, not
 only where it is reused. A digest over bytes only the leader ever saw
 certifies self-consistency and nothing else; every later round then
 faithfully reconsiders a possible fabrication.
@@ -51,7 +51,7 @@ AutoCourt's answer, per lane (ARCHITECTURE §3):
   (c) extraction code committed and versioned in the repo. Detectable, not
   prevented — and the docs say so.
 - **Independent-anchor evidence** (the only fetch in the system) inherits
-  the full Verda v0.1.1 rule at entry: **every validator fetches the
+  the full fresh-source provenance rule at entry: **every validator fetches the
   allowlisted URL itself** and agreement is exact-hash agreement on the
   bytes each fetched — no leader-private byte exists, ever. All-agree
   unavailable → item status `SOURCE_UNAVAILABLE`, never adverse; a
@@ -199,8 +199,8 @@ adversarial tests.
 
 The brief's non-goals exclude payments, escrow and enforcement, so S9 is
 answered in DECISION terms: the adjudicated verdict IS the product (the
-category Verda received Project credit in, with the same shape and a single
-ask — evidence provenance). The review killed v1's "remove GenLayer and one
+kind of adjudication that has received Project credit before, with the same
+shape and a single ask — evidence provenance). The review killed v1's "remove GenLayer and one
 party's backend becomes the authority on every claim" as an overclaim the
 operator's intake role rebuts. The defensible, layered claim (ARCHITECTURE
 §8): consensus eliminates operator authorship of the **judgment** and the

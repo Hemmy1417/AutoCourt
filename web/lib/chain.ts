@@ -56,7 +56,7 @@ export const STUDIO_NEXT_PARAMS = {
  * against Studio Next, a switch to an unknown chain rejects with code
  * -32603 and the 4902 under `data.originalError`. Checking the top-level
  * code alone let "Unrecognized chain ID" reach the user and the
- * add-network prompt never opened (Verda, 6 Sep). The code is looked for at
+ * add-network prompt never opened (measured 6 Sep). The code is looked for at
  * every level the major wallets use, and the message is the last resort.
  */
 export function isUnknownChainError(err: unknown): boolean {

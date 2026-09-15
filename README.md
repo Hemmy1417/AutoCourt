@@ -30,8 +30,8 @@ AutoCourt reads and writes one deployment of record: `0xa59D87e6ECdde32e940Ae060
 
 One web app in [`web/`](web), live at
 [auto-court-web.vercel.app](https://auto-court-web.vercel.app), that talks to
-the contract directly, in the shape of the author's Verda repository. There is
-no server, database, queue or key behind it:
+the contract directly. There is no server, database, queue or key behind
+it:
 
 - **Reads** go from the visitor's browser straight to Studio Next, typed and
   paced under the RPC's measured limit of 30 contract reads a minute per IP.
