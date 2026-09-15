@@ -15,11 +15,10 @@
  *                records CONFIRMED for the listed vehicle
  *   SOURCE       the registry extract committed in this repository at
  *                76a39ee, fetched from its pinned URL. Its readings sit in
- *                columns separated by two spaces, which is exactly what made
- *                ac-000023's copy enter SOURCE_UNAVAILABLE when the fingerprint
- *                was taken over the raw bytes. Taken over the bytes the
- *                validators' browser renders, the same file must now enter
- *                EXTRACTED
+ *                columns separated by two spaces, so a fingerprint taken over
+ *                the raw bytes could never match what a validator hashes.
+ *                Taken over the text the validators' browser renders, the
+ *                file must enter EXTRACTED
  *   ATTESTATION  the seller's signature is read back from the chain and
  *                verifies against the on-chain hashes
  *   VERDICT      the mileage claim reaches VERIFIED / HIGH on INDEPENDENT

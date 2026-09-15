@@ -19,8 +19,8 @@ user directed the build into the shape of their Verda repository: one web app
 that talks to the contract directly. The contract needed no change to run
 without an operator, because it never checked for one. That same evening it
 was redeployed to close the gap the operator had been hiding (see below), so
-the app now serves a new deployment of record, and the earlier deployment's
-records and proofs stay on chain where the README lists them.
+the app now serves a new deployment of record. Records do not carry across
+deployments: the app and the README show only the deployment of record's.
 
 | | |
 |---|---|
@@ -235,12 +235,13 @@ distinct entry lane with a **narrow, every-validator fetch at entry**:
   `innerText` passed through its webdriver's `normalizeWhitespace` (each
   line trimmed, whitespace runs collapsed, blank-line runs collapsed), and the
   contract hashes the first 8,000 characters of that. The app reproduces it
-  exactly for plain-text and JSON pages (`web/lib/evidence/anchor.ts`). Found
-  live on the earlier deployment: `ac-000023`'s registry extract, whose
-  readings sit in columns, entered `SOURCE_UNAVAILABLE` when the fingerprint
-  was taken over the raw bytes although every validator reached it and
-  agreed; the same file entered `EXTRACTED` on `ac-000024` once it was taken
-  over the rendered text.
+  exactly for plain-text and JSON pages (`web/lib/evidence/anchor.ts`). A
+  registry extract whose readings sit in columns shows why: its raw bytes
+  hash to a digest no validator computes, so a fingerprint taken over them
+  enters the source `SOURCE_UNAVAILABLE` although every validator reached it
+  and agreed. Taken over the rendered text, the same file entered `EXTRACTED`
+  on the deployment of record's clean record, and the render probe measured
+  the validators' digest directly (PROBE-REPORT.md).
 - The allowlist names two hosts. `api.nhtsa.gov` is a public authority:
   NHTSA's recall records, served as JSON, which the record page offers as a
   one-click source for the listed make, model and year. Commit-pinned

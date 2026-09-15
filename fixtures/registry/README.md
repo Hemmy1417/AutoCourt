@@ -27,8 +27,11 @@ the rendered text, not these raw bytes. Pinned at commit `76a39ee`:
 | the file's raw bytes | `83a9bc85009906d87faa1aa088c27cd80f91d5311a22ed9a8391fddb8a8fb0e3` |
 | the text every validator hashes | `4308ed17c2a6685ec1f1d9bc4c53c297882c8fe3c74d2b24f3566004f3682eb6` |
 
-Committing the first entered the source as unavailable on `ac-000023`;
-committing the second entered it on `ac-000024`. Check both:
+Every validator hashes the second: the render probe measured it
+(docs/PROBE-REPORT.md, "The render probe"), and the clean record `ac-000003`
+entered this file `EXTRACTED` under it on the deployment of record. A source
+committed under the first would enter as unavailable and never be judged.
+Check both:
 
 ```bash
 git cat-file -p 76a39ee:fixtures/registry/1HGCM82633A004352.txt | sha256sum

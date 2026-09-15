@@ -11,9 +11,9 @@
  * refuses to judge a source whose hash differs from the one committed.
  *
  * The app used to hash the raw response. Any source with two spaces in a
- * row then carried a hash no validator would ever compute: ac-000023's
- * registry extract, whose readings sit in aligned columns, entered
- * SOURCE_UNAVAILABLE although every validator reached it and agreed.
+ * row then carried a hash no validator would ever compute: a registry
+ * extract whose readings sit in aligned columns entered SOURCE_UNAVAILABLE
+ * although every validator reached it and agreed.
  *
  * For a plain-text or JSON page, which is what the allowlisted hosts serve,
  * innerText is the text itself, so this is exact. An HTML page's innerText

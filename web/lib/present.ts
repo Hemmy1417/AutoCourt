@@ -2,7 +2,7 @@
  * How the record's vocabulary reads on screen — the ONE place it is decided.
  *
  * The contract and the database speak in identifiers (PARTIALLY_VERIFIED,
- * FIRST_PARTY, ac-000021). People should never have to. Every value that
+ * FIRST_PARTY, ac-000005). People should never have to. Every value that
  * reaches a screen passes through here, and every lookup has a fallback
  * that still reads as words, so a value added later can never surface as
  * a raw constant. Pure: safe on the server and in the browser.
@@ -255,7 +255,7 @@ export function formatBytes(n: number): string {
   return `${n} bytes`;
 }
 
-/** "ac-000021" → "Record #21". The exact id stays in the verification views. */
+/** "ac-000005" → "Record #5". The exact id stays in the verification views. */
 export function recordNumber(onChainId: string | null | undefined): string {
   const m = (onChainId ?? "").match(/^ac-0*(\d+)$/);
   return m ? `Record #${m[1]}` : "";

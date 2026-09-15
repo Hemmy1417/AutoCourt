@@ -11,11 +11,14 @@ a 1989 Motor Coach Industries bus. That makes two demos possible.
 
 The rollback. List the vehicle as the registry knows it (make "Motor Coach
 Industries", year 1989, that VIN), so the identity check confirms it. Upload
-the invoice and then the rolled-back listing, add a typed odometer reading
-to each (2026-03-07 / 87432 and 2026-05-01 / 62000), seal and adjudicate:
-the contract computes the mileage conflict from the typed readings itself,
-no model asked, and unless the record explains the lower reading, the
-report headlines a possible odometer rollback.
+the invoice from the seller's wallet, then connect a second wallet and upload
+the rolled-back listing from it, adding a typed odometer reading to each
+(2026-03-07 / 87432 and 2026-05-01 / 62000). Seal from the seller's wallet
+and adjudicate: the contract computes the mileage conflict from the typed
+readings itself, no model asked. Because the two readings come from two
+different wallets, and unless the record explains the lower reading, the
+report headlines a possible odometer rollback. Readings from one wallet
+alone raise a mileage conflict, never a rollback.
 
 The identity check. List it as the documents describe it, a 2019 Meridian
 GT Wagon with that VIN. Before any evidence is judged, every validator

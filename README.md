@@ -24,7 +24,7 @@ AutoCourt reads and writes one deployment of record: `0x081Fe3bEb829226E0C8E95f5
 | RPC | `https://studio-next.genlayer.com/api` |
 | Source | [`contracts/autocourt_assessment.py`](contracts/autocourt_assessment.py), ruleset `autocourt-rules-4` — byte-verified: `cd web && node scripts/deploy.mjs verify 0x081Fe3bE…35A7` reports byte-for-byte identity (sha256 `7cf6b22c…db28`); deploy tx `0xa7878647ddd54832d74829b730aee43320cd98a7d6fa244e3e6d25cbd435cbc8` |
 | Anchor allowlist | `["api.nhtsa.gov", "raw.githubusercontent.com"]` — NHTSA's public recall records, and commit-pinned GitHub raw standing in for registries no public API serves; visible in `get_config()`, and `VERIFIED` is reachable only through a source |
-| Superseded | `0xb13808bC…0854` (signed writes, replaced before its first record by the floor the recall proof found), `0xE26B3C4A…7998` (writes open to any wallet; its records and proofs stay on chain, [below](#the-earlier-deployment)), and before it `0x283E59d0…3c30`, `0xE9d81837…C6a9`, `0x214821A6…5555` — every one documented with its receipts in [PROBE-REPORT](docs/PROBE-REPORT.md) |
+| Superseded | `0xb13808bC…0854` (signed writes, replaced before its first record by the floor the recall proof found), `0xE26B3C4A…7998` (writes open to any wallet), and before it `0x283E59d0…3c30`, `0xE9d81837…C6a9`, `0x214821A6…5555`. Records do not carry across deployments: the app and this README show only the deployment of record's. Why each deployment was replaced is measured in [PROBE-REPORT](docs/PROBE-REPORT.md) |
 
 ## The app
 
@@ -245,157 +245,24 @@ hashed match the fingerprint the adder committed.
 **The finding.** GenVM's `render(url, mode="text")` does not return a text
 file's raw bytes. Its webdriver takes the page's `innerText` and normalizes
 whitespace line by line (read from the GenVM source, function
-`normalizeWhitespace`). The first registry extract committed to this
-repository has its readings in columns separated by two spaces, so a
-fingerprint taken over the raw file could never match. On the earlier
-deployment:
+`normalizeWhitespace`). The registry extract committed to this repository has
+its readings in columns separated by two spaces, so a fingerprint taken over
+the raw file can never match what a validator hashes:
 
-| record | fingerprint committed | what every validator hashed | entered as |
-|---|---|---|---|
-| `ac-000023` | raw bytes `83a9bc85…fb0e3` | `4308ed17…682eb6` — every validator reached the page and agreed (tx `0x22790a41…df28f6`) | `SOURCE_UNAVAILABLE`, never judged |
-| `ac-000024` | rendered text `4308ed17…682eb6` | `4308ed17…682eb6` | **`EXTRACTED`** |
+| fingerprint taken over | sha256 | on the deployment of record |
+|---|---|---|
+| the file's raw bytes | `83a9bc85…fb0e3` | no validator computes it, so a source committed under it enters `SOURCE_UNAVAILABLE` and is never judged |
+| the text every validator renders | `4308ed17…682eb6` | the clean record's source entered **`EXTRACTED`** under it (`ac-000003`, tx `0xb8b696ef…a6afc`) |
 
-The same commit-pinned file both times
+The file is commit-pinned
 ([`fixtures/registry/1HGCM82633A004352.txt`](fixtures/registry/1HGCM82633A004352.txt)
-at `76a39ee`, a fictional extract the fixture's README explains). The app now
+at `76a39ee`, a fictional extract the fixture's README explains). The app
 fingerprints what the validators will render
 ([`web/lib/evidence/anchor.ts`](web/lib/evidence/anchor.ts)), and a unit test
-pins that function to the digest the validators computed on chain. Before
-NHTSA's host went on the allowlist, a disposable probe had every validator
-render it and agree, and the same function reproduced their digest
+pins that function to the digest above. Before NHTSA's host went on the
+allowlist, a disposable probe had every validator render this file and
+NHTSA's recall list and agree, and the same function reproduced every digest
 ([PROBE-REPORT, "The render probe"](docs/PROBE-REPORT.md#the-render-probe-14-sep-can-every-validator-read-a-real-authority)).
-
-## The earlier deployment
-
-`0xE26B3C4A36EC1a83Aa4814a9CA44e4b6a7EB7998` (sha256 `aac854f1…01ac`) served
-AutoCourt until the redeploy on 14 Sep. Its writes were open to any wallet,
-which is why it was replaced; nothing about its records was wrong, and they
-stay on chain, readable through its views. The app reads the deployment of
-record only.
-
-### The identity check, live
-
-Two assessments differing only in their VIN. Nothing about either outcome
-came from a party — four validators each decoded the VIN at the federal
-registry and had to agree
-([`web/scripts/identity-demo.mjs`](web/scripts/identity-demo.mjs)):
-
-| listing | seller declares | the registry reads | result |
-|---|---|---|---|
-| honest — `1HGCM82633A004352` | 2003 Honda Accord | 2003 HONDA Accord (Coupe) | **CONFIRMED** |
-| false — `1M8GDM9AXKP042788` | 2019 Meridian GT Wagon | **1989 MOTOR COACH INDUSTRIES 102C3 Intercity (Bus)** | **MISMATCH** |
-
-`0x629fce9a7e6813096accfffe563862b105a84f11a7dc91fe9cb7c6b3d848a30d` ·
-`0xf8180b706a3db89404156bc27b972ef37d2b6a0264898f4ea588f35505ee6c0b`
-
-The second row is the point. The seller supplied every other byte on that
-record, and the contract still caught the identity — because the one question
-that matters most was never asked of the seller. The deployment of record
-repeats the `MISMATCH` in its wallet-walls proof above.
-
-Make comparison is deliberately forgiving ("Mercedes" matches
-"MERCEDES-BENZ"), because a false mismatch accuses an honest seller. An
-abbreviation the registry does not share — "VW" against "VOLKSWAGEN" — reads
-as a mismatch; that is a stated limitation, and the reason a mismatch caps a
-claim rather than alleging fraud.
-
-### Live evidence on the earlier deployment
-
-<!-- ARC:BEGIN -->
-Run 13 Sep 2026 against `0xE26B3C4A36EC1a83Aa4814a9CA44e4b6a7EB7998`, then
-the deployment of record (operator `0x8af429f1…6fd1`),
-by [`web/scripts/arc.mjs`](web/scripts/arc.mjs) — every line below is either
-backed by a hard assertion in that script (it exits non-zero without it) or
-marked *observed* where the value is the live panel's judgment. Every
-transaction FINALIZED under MAJORITY_AGREE. Explorer:
-`https://explorer-studio-dev.genlayer.com/tx/<hash>`.
-
-**Act I — the sale record** (`ac-000003`): a real VIN, declared honestly.
-Before the record existed, every validator decoded it at the federal registry
-— **CONFIRMED, 2003 HONDA Accord**. Then the seller's invoice and the buyer's
-history record enter with their text hashes recomputed at entry, the buyer's
-dispute is recorded, and the packet seals.
-
-| step | tx |
-|---|---|
-| create (registry decoded by every validator) | `0x2684686e5d25ed7c8ddaeaac374e646c62015016e3c4a8b777ff2f934d00b897` |
-| seller invoice enters | `0x1af08ff5bf279ef28191b4905bdb7c0ae04a902f3f2202df50b61b689f755c03` |
-| buyer history enters | `0x90aa4517c0f3eb9ef9b44ef9cfc57dd9b546a945da969efeffe85285120a2b77` |
-| buyer disputes CL-02 | `0x92117a2306f81e8824bb77e1633ed04b87ee035f6a4ab59d27693016dd92581b` |
-| seal | `0x3c1ba9812543f09d4e533ba9ccc4c9ba856921126d90e1532b204697f1dd9d9d` |
-| adjudicate (panel) | `0x81e01018e1f2850650f90b2cab21d427282a38ee35dbcb5118a2e2bfb4f9b0d8` |
-
-Derived on-chain: rollup `PARTIALLY_VERIFIED`. CL-01 support classes
-`[FIRST_PARTY]`, confidence LOW; CL-02 support `[ADVERSE]` — the disputing
-buyer's own record backing the claim it disputes — confidence MEDIUM.
-**Asserted**: the registry confirms the declared vehicle, and neither claim
-reaches `VERIFIED` without an independent source.
-
-**Act II — the rollback record** (`ac-000004`): a later-dated LOWER odometer
-reading enters from a second account, with its dispute.
-
-| step | tx |
-|---|---|
-| create | `0xd2868a6c78c627399172ba6ef3b5d572aa7c9af0c23d1ddb8e26b6750714f73b` |
-| invoice enters | `0x8a7e45f4ba72b05dc4ad914f0ddc3124aa449d317e053dd38a36eaffead6abfe` |
-| later-dated lower reading | `0x59dd27fcc44ab1d179105d7511560c736cce056d72e8844fa018439b62083ed3` |
-| second account disputes | `0xcfde7cef0c90eb953ec167a32c93ccabaaf36c5a9a0bd6566b96883799e8ef9e` |
-| seal | `0xd08d344c35a81a479d2ca92be3a3a7dd07f36d1149e29162d7d54889d980d4e9` |
-| adjudicate (panel) | `0x0374c932e36edd2a748409b67c8472816ed18597470fc417826f8d4411464795` |
-
-**Asserted**: the contract recomputes the mileage conflict from typed
-observation rows. *Observed*: the panel found no explanation in the record, so
-the rollup is `POSSIBLE_ODOMETER_ROLLBACK`.
-
-**Act III — the appeal** (`ac-000003`): the buyer's post-verdict
-counter-report enters tagged NEW; the appeal re-judges the stored bytes plus
-it.
-
-| step | tx |
-|---|---|
-| counter-report enters (NEW) | `0xcd4120671015228ff37889ea811635bd1b300f7143499f3c43ca1a274d64dc3d` |
-| readjudicate (panel) | `0x3e61ccac402ee6c17e7419e7d934c8718a71c75c186cf01db3d571222a9a696c` |
-
-Run 2 rollup `PHYSICAL_INSPECTION_REQUIRED`. **Asserted**: run 1 is
-byte-identical after the appeal; the new item was judged at packet v2 and
-tagged post-verdict; and the accuser-only contradiction is floored at
-inspection rather than becoming `CLAIM_CONTRADICTED`.
-
-**The wall** — five refusals, each FINALIZED with the contract's own sentence
-decoded from the leader receipt. **None unproven.** The two pre-seal gates run
-on a dedicated OPEN fixture (`ac-000005`), because on a sealed record the seal
-gate fires first and would prove the wrong sentence.
-
-| wall | the contract's sentence | tx |
-|---|---|---|
-| re-judge an unchanged packet | `[EXPECTED] run 2 already judged this exact packet; a re-judgment is an appeal (readjudicate)` | `0x53d558b149e38579b1db1185273cf26ad78c7828be2f8f225b6c2325dff04c62` |
-| stranger appeal | `[EXPECTED] only a recorded party may appeal` | `0xd890fbd057451b0e7cef09b1847d19f5651b5f5fb8b212170e533c363d67092d` |
-| evidence after seal | `[EXPECTED] evidence closes at seal; new evidence after a verdict enters through submit_appeal_evidence` | `0xbfd5c5e1e24339cb99222de6e164a6ed99ed2d5eef9a5f9a3f8ef6fac48b8a2a` |
-| hash not covering the bytes | `[EXPECTED] text_sha256 does not match the supplied text` | `0x8445359f255a437d1e30372350ea9e02304b48e129ba1f82492169703a1cf98e` |
-| anchor off the allowlist | `[EXPECTED] anchor host is not on the deployment allowlist` | `0x8924d76b99a3ad7a0fda04c00f5e5cf7f43675ca4bf0f6fbc613d5ec1cda80b1` |
-<!-- ARC:END -->
-
-The record numbers above are that deployment's own; the deployment of record
-numbers its records from `ac-000001` again. The arc script names parties as
-plain accounts sent from one wallet, which the deployment of record refuses,
-so it is kept as the record of how these proofs were made.
-
-### Earlier live proofs
-
-Produced on 13–14 Sep on the same earlier deployment, by the full-stack build
-this repository replaced. Their scripts drove that build's HTTP API, so they
-live at commit
-[`76a39ee`](https://github.com/Hemmy1417/AutoCourt/tree/76a39eea547c8286dcdaf360899303f9c75b481b/scripts).
-
-| record | what it proved |
-|---|---|
-| `ac-000006` | the independent-source lane from the app: an allowlisted source entered `EXTRACTED` once every validator agreed (tx `0x3fa2050b…73558f9`); the contract's own refusal of an off-allowlist source is the arc's wall above |
-| `ac-000009` | a full appeal cycle; run 1 byte-identical after run 2 |
-| `ac-000010` | **`VERIFIED` / HIGH** on `INDEPENDENT` corroboration: a disclosed accident, corroborated by a police report no party authored |
-| `ac-000012` | `diagnostic_concern_supported`: a trouble code with symptom support in the record (a stored code alone is never an auto-failure) |
-| `ac-000015` / `ac-000016` | the identity check as a controlled pair: byte-identical evidence apart from the VIN; the undecodable VIN reached `VERIFIED` / HIGH, the VIN that decodes to a 1989 bus reached `CONFLICTING_EVIDENCE` / LOW at `MATERIAL_CONCERN` |
-| `ac-000019` | a re-judgment of an unchanged packet refused in the contract's words: "run 1 already judged this exact packet" |
-| `ac-000022` | a record at the contract's 4-run limit, and the contract refusing a fifth: `[EXPECTED] the record holds at most 4 runs` (tx `0x9e066eae…01cd`) |
 
 ## Running it
 
@@ -447,6 +314,11 @@ findings this build answers
   wallets a seller controls before a genuine buyer arrives. That forges no
   one's name and changes no derivation, but it can keep a buyer's evidence
   out of the first packet; the seller also decides when intake closes.
+- **Make matching is deliberately forgiving** ("Mercedes" matches
+  "MERCEDES-BENZ"), because a false mismatch accuses an honest seller. An
+  abbreviation the registry does not share, "VW" against "VOLKSWAGEN", reads
+  as a mismatch, which is why a mismatch caps a claim rather than alleging
+  fraud.
 - **Wallets are self-attested identity**; the contract's floors, not a login,
   make a second wallet worthless.
 - **A recall list speaks for a model year, not a car.** NHTSA's list can
