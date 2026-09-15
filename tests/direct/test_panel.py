@@ -27,7 +27,7 @@ def test_happy_path_derives_the_report_in_code(module, c):
     assert by_id["CL-01"]["verdict"] == "PARTIALLY_VERIFIED"
     assert by_id["CL-02"]["verdict"] == "PARTIALLY_VERIFIED"
     assert by_id["CL-01"]["next_action"] == "OBTAIN_INDEPENDENT_RECORD"
-    assert v["ruleset"] == "autocourt-rules-4"
+    assert v["ruleset"] == "autocourt-rules-5"
 
 
 def test_independent_anchor_lifts_verified_and_dispute_prices_adverse(

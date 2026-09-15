@@ -41,7 +41,7 @@ is the identity), and the private pre-submission draft (an item is public the
 moment its uploader publishes it, and the publish step says so). What it
 exposed: the contract's writes were open to any wallet, which the operator
 used to hide. The redeploy closed that in the contract itself (ruleset
-`autocourt-rules-3`, then `-4`):
+`autocourt-rules-3`, then `-4` and `-5`):
 
 - **Every account a write records is the wallet that signed it** — the seller
   of record, each uploader, each disputer, each appellant. A claimed account
@@ -62,8 +62,11 @@ used to hide. The redeploy closed that in the contract itself (ruleset
 Designing the recall proof then exposed one asymmetry in the derivation,
 fixed in `autocourt-rules-4` before the new deployment held a record: first-
 party support could turn an independent source's contradiction into
-`CONFLICTING_EVIDENCE` (§4.4). [THREAT-MODEL.md](THREAT-MODEL.md) states what
-remains.
+`CONFLICTING_EVIDENCE` (§4.4). Running the remaining live proofs on that
+deployment then exposed a second: a scanner report whose road test read
+normal still raised the diagnostic flag. `autocourt-rules-5` fixes it (§6(b))
+and is the deployment of record. [THREAT-MODEL.md](THREAT-MODEL.md) states
+what remains.
 
 The sections below are the founding decisions. The contract design (§1, §3.2
 to §3.5, §4, §6) is exactly what is deployed. Where a section described the
@@ -434,11 +437,18 @@ contradict itself:
   INSUFFICIENT_EVIDENCE, PHYSICAL_INSPECTION_REQUIRED, INCONCLUSIVE`.
 - **(b) Code-derived flags** (never claim verdicts): `mileage_conflict`
   (contract-recomputed date/odometer inversion from typed rows, §3.3),
-  `odometer_rollback_indicated` (= mileage_conflict **and** the panel's
-  explanation finding says NOT_EXPLAINED), `diagnostic_concern_supported`
-  (panel symptom-support finding over normalized codes; a diagnostic code is
-  never an auto-failure — brief §14; safety-critical concerns always set the
-  inspection bit).
+  `odometer_rollback_indicated` (= a mileage conflict the panel finds
+  NOT_EXPLAINED, whose readings come from two distinct wallets or include an
+  independent source), `diagnostic_concern_supported` (the panel's finding
+  that the evidence describes an observed effect of a recorded code's fault,
+  over normalized codes; a diagnostic code is never an auto-failure — brief
+  §14; safety-critical concerns always set the inspection bit). Since
+  `autocourt-rules-5` the panel is told that a document which only lists,
+  names or defines a code is not support, and that a report of normal
+  operation means no; and a support quote that carries a recorded code
+  identifier does not count, in code. Found live: on the previous deployment
+  a report whose road test read normal raised the flag with every voting
+  validator agreeing (PROBE-REPORT.md).
 - **(c) Assessment-level rollup** — the report headline, derived by fixed
   precedence over (a)+(b): `POSSIBLE_ODOMETER_ROLLBACK ≻ MILEAGE_CONFLICT ≻
   MATERIAL_CONCERN ≻ DIAGNOSTIC_CONCERN_SUPPORTED ≻` (claim-verdict

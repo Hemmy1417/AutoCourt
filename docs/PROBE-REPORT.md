@@ -291,3 +291,78 @@ were identical to the leader's. The round finalized `MAJORITY_AGREE` (tx
 nothing was lost, but it is the citation-round lesson in a new place: the
 report's class sets are inside equivalence, and a class that changes no
 decision can still split a validator. Recorded here as observed, not fixed.
+
+## The diagnostic flag a normal road test raised (15 Sep)
+
+A stored trouble code is never meant to be a defect on its own: the
+`diagnostic_concern_supported` flag needs the panel to find support in the
+evidence, with a quote that grounds in the record. The live proof on
+`0x081Fe3bE…35A7` ran a control beside the real case. Both records carried
+the same buyer's scanner report with stored code P0128 and the same typed
+code; only the road test differed.
+
+| record | the report's road test | flag | adjudication tx |
+|---|---|---|---|
+| `ac-000008` | gauge stays low, lukewarm heat, warning light on | raised, headline `DIAGNOSTIC_CONCERN_SUPPORTED` | `0xe0424641fceb7eef7cf9a8a8ec6a252c3d7d531d4f9047b579587c9e8f4ce288` |
+| `ac-000009` | gauge normal, heater hot, no warning light | **raised too**, headline `DIAGNOSTIC_CONCERN_SUPPORTED` | `0x3a29e97b7c219af3449b92a247ca40cb501e6ac604816da507d2764c3ab1e296` |
+
+Every voting validator agreed on the second round, so this was the panel's
+consistent reading, not one model's slip. The question it had been asked,
+"supported by symptoms or context in the evidence", let a report that names
+the code count as its own context, and the only code-level check was that
+some quote grounded in the record. The stored run keeps the flag, not the
+quote, so which line the panel quoted is not on the record.
+
+**`autocourt-rules-5`** fixes it in two places:
+
+- **The question.** Support is only an observed effect of a recorded code's
+  fault, described in the evidence's own words: a symptom or a measurement
+  out of range. A document that only lists, names or defines a code is not
+  support; when the evidence reports the affected system behaving normally,
+  the answer is no; and the quote must be the effect itself, never the line
+  that names the code.
+- **The boundary check.** A support quote that carries a recorded code
+  identifier, in any spelling (`P0128`, `p-0128`), does not count, whatever
+  the model says it shows (`_names_a_code`).
+
+Seven direct tests pin both, and eight mutants (the code check removed,
+exact-spelling only, case-sensitive, each of the two new rules dropped from
+the question, the question asked without recorded codes, grounding skipped,
+the ruleset not bumped) were each killed.
+
+Before deploying for real, the same proof ran on a disposable copy,
+`0xFFa68b50e70C7AFA6b4286d7477b6B3947b44D52` (deploy
+`0xf244a2b986b103e9f02b1d77a81f9155c77d7122a5679b5cb90b721e117a5127`,
+byte-identical to the repository), with a third control: the code and its
+definition and nothing else.
+
+| record | the report | flag | adjudication tx |
+|---|---|---|---|
+| `ac-000001` | symptoms | raised | `0xb6f3973b1e3bf70df938e87ea7aaab98bdb42af58c55160049f7932b0955cae2` |
+| `ac-000002` | normal road test | **not raised** | `0x575c6690be420dfdc3c1268b6e64a7b4cd9f05f0ae6df674bc5c2b64022b32f0` |
+| `ac-000003` | the code and its definition only | **not raised** | `0xf312af8f003eb7f4b3cad97d30d80719b26ffd2f960d4bd3e0de3c842adf745c` |
+
+All three finalized `MAJORITY_AGREE` with every voting validator agreeing,
+and no validator printed a `[DOWNGRADE]`: the rewritten question alone
+changed the panel's answer, and the boundary check stands behind it for a
+model that quotes the code anyway.
+
+The fixed source, sha256
+`98cd2ff0e82ea5c2f47f836430fccc694656e24f420aebc6fc8423561df19551`, was
+deployed as `0xFCDd0624151985C54d3812c588393Aaf0b2657D0` (deploy
+`0xbb7a33b6e1e38de7e86f4aedc5234b9de830adebfcbac60efb9b8c412c685bb1`). Its
+clean-record proof passed, and then Studio Next went down for half an hour
+(about 03:32 to 04:03 UTC on 15 Sep). The leader of the recall proof's NHTSA
+fetch reported `GenVM crashed 3 times with a non-classifiable internal error
+… sending request to module` (tx
+`0x3dc76f3bc5cc4c1aae2029c2d997b076cb07ce18cdbbf885be021cf9c208e005`,
+finalized `NO_MAJORITY`), and two record-opening writes sat `PENDING` until
+the queue drained at 04:03. That left three of its first four records
+half-finished, from nothing the contract did. A create on the disposable
+deployment then finalized in 44 seconds, so the same source was deployed once
+more for a record list with nothing half-finished on it:
+
+**`0xa59D87e6ECdde32e940Ae060D146FcB85F9F7dE3`** (`autocourt-rules-5`, deploy
+`0x1e6c035300ce060d3a97bad31ed519f3079a936eeff467fb69f2a29d1660a931`, the same
+sha256, byte-identical to the repository) is the deployment of record, and
+every live proof was run on it.

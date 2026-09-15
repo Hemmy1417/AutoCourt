@@ -49,13 +49,95 @@ export class Receipts {
   }
 }
 
+/** Words a dropped connection leaves somewhere in an error's cause chain. */
+const TRANSPORT = /fetch failed|econnreset|etimedout|eai_again|socket|other side closed|could not be reached|network error/i;
+
+function transportFailure(err: unknown): boolean {
+  let node: unknown = err;
+  for (let depth = 0; depth < 8 && typeof node === "object" && node !== null; depth++) {
+    const e = node as { message?: unknown; details?: unknown; shortMessage?: unknown; cause?: unknown };
+    if ([e.message, e.details, e.shortMessage].some((m) => typeof m === "string" && TRANSPORT.test(m))) return true;
+    node = e.cause;
+  }
+  return false;
+}
+
+/** An idempotent call (a faucet request, a balance read), retried through a dropped connection. */
+async function patient<T>(fn: () => Promise<T>, tries = 5): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (attempt >= tries || !transportFailure(err)) throw err;
+      await sleep(3_000 * attempt);
+    }
+  }
+}
+
+async function pendingNonce(address: string): Promise<bigint> {
+  return BigInt(String(await rpc("eth_getTransactionCount", [address, "pending"])));
+}
+
+type SendOptions = Omit<Parameters<typeof writeAndConfirm>[0], "client" | "address">;
+
+/**
+ * writeAndConfirm, patient with a dropped connection. A write is sent again
+ * only when nothing reached the chain: no transaction hash came back AND the
+ * wallet's pending nonce did not move. A transaction the node took is never
+ * sent twice.
+ */
+async function send(w: Wallet, opts: SendOptions): Promise<string> {
+  for (let attempt = 1; ; attempt++) {
+    const before = await pendingNonce(w.address);
+    let hash = "";
+    let stage = "";
+    try {
+      const sent = await writeAndConfirm({
+        // A slow network gets time; the app itself gives up sooner and says so.
+        predicateTries: 60,
+        ...opts,
+        client: w.client,
+        address: CONTRACT_ADDRESS,
+        onProgress: (p) => {
+          if (p.hash) hash = p.hash;
+          stage = p.stage;
+          opts.onProgress?.(p);
+        },
+      });
+      if (stage === "unresolved") {
+        // A write that never lands must not come back later as a half-finished
+        // record, and the proof must stop here rather than fail further on.
+        let cancelled = false;
+        try {
+          await w.client.cancelTransaction({ hash });
+          cancelled = true;
+        } catch {
+          // Already picked up by a leader: it may still land.
+        }
+        throw new Error(`${opts.functionName} did not land in time (${hash}); ${cancelled ? "cancelled" : "not cancellable, it may still land"}`);
+      }
+      return sent;
+    } catch (err) {
+      if (hash || attempt >= 4 || !transportFailure(err)) throw err;
+      if ((await pendingNonce(w.address)) !== before) throw err;
+      console.log(`[retry] ${opts.functionName} by ${w.name}: the connection dropped before anything reached the chain; sending again`);
+      await sleep(5_000 * attempt);
+    }
+  }
+}
+
 /** A fresh wallet holding test GEN from the faucet the wallet menu offers. */
 export async function fundedWallet(name: string, log: (s: string) => void): Promise<Wallet> {
   const account = createAccount();
   const client = createClient({ chain: { ...STUDIO_NEXT }, account });
-  await requestTestGen(account.address);
-  for (let i = 0; i < 20 && (await getBalanceAtto(account.address)) === 0n; i++) await sleep(2_000);
-  expect(await getBalanceAtto(account.address)).toBeGreaterThan(0n);
+  await patient(() => requestTestGen(account.address));
+  let balance = 0n;
+  for (let i = 0; i < 20; i++) {
+    balance = await patient(() => getBalanceAtto(account.address));
+    if (balance > 0n) break;
+    await sleep(2_000);
+  }
+  expect(balance).toBeGreaterThan(0n);
   log(`${name} ${account.address}`);
   return { name, address: account.address.toLowerCase(), account, client };
 }
@@ -65,16 +147,15 @@ export async function openRecord(
   vehicle: { vin: string; make: string; model: string; year: number },
   claims: { type: string; declared_value: string }[],
   receipts: Receipts,
+  step = "create",
 ): Promise<string> {
   const before = (await getStats(true)).assessments;
   let id = "";
-  await writeAndConfirm({
-    client: w.client,
-    address: CONTRACT_ADDRESS,
+  await send(w, {
     functionName: "create_assessment",
     args: [JSON.stringify({ ...vehicle, seller_account: w.address }), JSON.stringify(claims)],
     simulate: false,
-    predicateTries: 40,
+    predicateTries: 90,
     predicate: async () => {
       const now = (await getStats(true)).assessments;
       if (now <= before) return false;
@@ -84,7 +165,7 @@ export async function openRecord(
       }
       return Boolean(id);
     },
-    onProgress: receipts.track("create"),
+    onProgress: receipts.track(step),
   });
   return id;
 }
@@ -93,7 +174,14 @@ export async function openRecord(
 export async function upload(
   w: Wallet,
   id: string,
-  doc: { declared_class: string; label: string; text: string; observations?: ObservationRow[]; capture_date?: string },
+  doc: {
+    declared_class: string;
+    label: string;
+    text: string;
+    observations?: ObservationRow[];
+    diagnostic_codes?: string[];
+    capture_date?: string;
+  },
   receipts: Receipts,
   step: string,
   appeal = false,
@@ -106,9 +194,7 @@ export async function upload(
   const fileSha256 = await sha256Bytes(bytes);
   const textSha256 = await sha256Text(text);
   const signature = await w.account.signMessage({ message: attestationMessage({ evidenceId, textSha256, fileSha256 }) });
-  await writeAndConfirm({
-    client: w.client,
-    address: CONTRACT_ADDRESS,
+  await send(w, {
     functionName: appeal ? "submit_appeal_evidence" : "submit_evidence_text",
     args: [
       id,
@@ -125,7 +211,7 @@ export async function upload(
         text,
         uploader_signature: signature,
         observations: doc.observations ?? [],
-        diagnostic_codes: [],
+        diagnostic_codes: doc.diagnostic_codes ?? [],
         capture_date: doc.capture_date ?? "",
       }),
     ],
@@ -141,13 +227,11 @@ export async function addSource(w: Wallet, id: string, url: string, label: strin
   const rendered = renderedText(served);
   const expected = await sha256Text(rendered);
   const evidenceId = nextEvidenceId((await getRecord(id, true))!.items);
-  await writeAndConfirm({
-    client: w.client,
-    address: CONTRACT_ADDRESS,
+  await send(w, {
     functionName: "submit_anchor_item",
     args: [id, anchorItemJson({ evidence_id: evidenceId, declared_label: label, url, expected_sha256: expected })],
     simulate: false,
-    predicateTries: 40,
+    predicateTries: 90,
     predicate: async () => Boolean((await getRecord(id, true))?.items.some((i) => i.evidence_id === evidenceId)),
     onProgress: receipts.track(step),
   });
@@ -156,9 +240,7 @@ export async function addSource(w: Wallet, id: string, url: string, label: strin
 
 export async function dispute(w: Wallet, id: string, claimIds: string[], note: string, receipts: Receipts, step: string) {
   const before = (await getRecord(id, true))!.disputes.length;
-  await writeAndConfirm({
-    client: w.client,
-    address: CONTRACT_ADDRESS,
+  await send(w, {
     functionName: "record_dispute",
     args: [id, w.address, JSON.stringify(claimIds), note],
     predicate: async () => ((await getRecord(id, true))?.disputes.length ?? 0) > before,
@@ -171,9 +253,7 @@ export async function seal(w: Wallet, id: string, receipts: Receipts, step = "se
   const root = await manifestRoot(
     record.items.map((i) => ({ evidenceId: i.evidence_id, fileSha256: i.file_sha256, textSha256: i.text_sha256, extractorVersion: i.extractor_version })),
   );
-  await writeAndConfirm({
-    client: w.client,
-    address: CONTRACT_ADDRESS,
+  await send(w, {
     functionName: "submit_assessment",
     args: [id, root],
     predicate: async () => (await getRecord(id, true))?.state === "SEALED",
@@ -184,13 +264,11 @@ export async function seal(w: Wallet, id: string, receipts: Receipts, step = "se
 
 export async function adjudicate(w: Wallet, id: string, receipts: Receipts, step = "adjudicate") {
   const before = (await getRecord(id, true))!.runs_count;
-  await writeAndConfirm({
-    client: w.client,
-    address: CONTRACT_ADDRESS,
+  await send(w, {
     functionName: "adjudicate",
     args: [id],
     simulate: false,
-    predicateTries: 100,
+    predicateTries: 150,
     predicate: async () => ((await getRecord(id, true))?.runs_count ?? 0) > before,
     onProgress: receipts.track(step),
   });
@@ -198,13 +276,11 @@ export async function adjudicate(w: Wallet, id: string, receipts: Receipts, step
 
 export async function appeal(w: Wallet, id: string, grounds: string, receipts: Receipts, step = "appeal") {
   const before = (await getRecord(id, true))!.runs_count;
-  await writeAndConfirm({
-    client: w.client,
-    address: CONTRACT_ADDRESS,
+  await send(w, {
     functionName: "readjudicate",
     args: [id, w.address, grounds],
     simulate: false,
-    predicateTries: 100,
+    predicateTries: 150,
     predicate: async () => ((await getRecord(id, true))?.runs_count ?? 0) > before,
     onProgress: receipts.track(step),
   });
@@ -255,14 +331,19 @@ function strings(node: unknown, out: string[] = [], depth = 0): string[] {
   return out;
 }
 
-/** The contract's own sentence in the deciding (leader) receipt of a finalized transaction. */
+/**
+ * The contract's own sentence in the deciding (leader) receipt of a finalized
+ * transaction. On Studio Next it is the receipt's `result`: base64 of one
+ * status byte and the sentence, exactly as raised. A sentence can end in a
+ * bracket ("… an appeal (readjudicate)"), so nothing is trimmed from it.
+ */
 export function refusalSentence(tx: any): string {
   const rows: any[] = tx?.consensus_data?.leader_receipt ?? [];
   const leader = rows.find((r) => r?.mode !== "validator") ?? rows[0];
-  for (const s of strings(leader)) {
+  const fromResult = typeof leader?.result === "string" ? Buffer.from(leader.result, "base64").toString("utf8") : "";
+  for (const s of [fromResult, ...strings(leader)]) {
     const at = s.indexOf("[EXPECTED]");
-    // A traceback quotes the sentence as UserError('...'): keep the sentence only.
-    if (at >= 0) return s.slice(at).split("\n")[0]!.replace(/['")\]}]+$/, "").trim();
+    if (at >= 0) return s.slice(at).split("\n")[0]!.trim();
   }
   return "";
 }
@@ -274,14 +355,24 @@ export function refusalSentence(tx: any): string {
  * FINALIZED, with the leader's deciding sentence.
  */
 export async function refusedOnChain(w: Wallet, functionName: string, args: unknown[], log: (s: string) => void) {
-  const est = await w.client.estimateTransactionFees();
-  const res = await w.client.writeContract({
-    address: CONTRACT_ADDRESS as `0x${string}`,
-    functionName,
-    args,
-    value: 0n,
-    fees: { distribution: est.distribution, feeValue: floorFee(BigInt(est.feeValue)) },
-  });
+  const est = await patient<any>(() => w.client.estimateTransactionFees());
+  let res: any;
+  for (let attempt = 1; ; attempt++) {
+    const before = await pendingNonce(w.address);
+    try {
+      res = await w.client.writeContract({
+        address: CONTRACT_ADDRESS as `0x${string}`,
+        functionName,
+        args,
+        value: 0n,
+        fees: { distribution: est.distribution, feeValue: floorFee(BigInt(est.feeValue)) },
+      });
+      break;
+    } catch (err) {
+      if (attempt >= 4 || !transportFailure(err) || (await pendingNonce(w.address)) !== before) throw err;
+      await sleep(5_000 * attempt);
+    }
+  }
   const hash: string = typeof res === "string" ? res : (res?.transactionHash ?? res?.hash ?? "");
   expect(hash).toMatch(/^0x[0-9a-f]{64}$/i);
   for (let i = 0; i < 60; i++) {
@@ -300,20 +391,28 @@ export async function refusedOnChain(w: Wallet, functionName: string, args: unkn
 
 /** What the app does with the same write: simulate it, and send nothing if the contract refuses. */
 export async function refusedBeforeSending(w: Wallet, functionName: string, args: unknown[]) {
-  const stages: TxProgress[] = [];
-  let thrown: unknown = null;
-  try {
-    await writeAndConfirm({
-      client: w.client,
-      address: CONTRACT_ADDRESS,
-      functionName,
-      args,
-      predicate: async () => false,
-      onProgress: (p) => stages.push(p),
-    });
-  } catch (err) {
-    thrown = err;
+  for (let attempt = 1; ; attempt++) {
+    const stages: TxProgress[] = [];
+    let thrown: unknown = null;
+    try {
+      await writeAndConfirm({
+        client: w.client,
+        address: CONTRACT_ADDRESS,
+        functionName,
+        args,
+        predicate: async () => false,
+        onProgress: (p) => stages.push(p),
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    const last = stages[stages.length - 1]!;
+    const sent = stages.some((p) => Boolean(p.hash));
+    // A simulation the network dropped says nothing about the contract: ask again.
+    if (!sent && attempt < 4 && transportFailure(thrown)) {
+      await sleep(5_000 * attempt);
+      continue;
+    }
+    return { thrown, last, sent };
   }
-  const last = stages[stages.length - 1]!;
-  return { thrown, last, sent: stages.some((p) => Boolean(p.hash)) };
 }

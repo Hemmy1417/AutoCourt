@@ -90,6 +90,9 @@ export type TxFees = {
 
 const SIMULATION_TIMEOUT_MS = 30_000;
 
+/** A simulation the network dropped is asked this many times before the write is priced without it. */
+export const SIMULATION_ATTEMPTS = 3;
+
 class SimulationStalled extends Error {}
 
 /**
@@ -101,6 +104,11 @@ class SimulationStalled extends Error {}
  * price it. That plain estimate is the path AutoCourt's earlier worker used
  * for every write on Studio Next, and a simulation that stalls or fails for
  * a reason that is not the contract's falls back to it.
+ *
+ * A dropped connection is not such a reason: it says nothing about the
+ * write, so the simulation is asked again first. Found live: one "fetch
+ * failed" on the simulation of a stranger's seal sent that seal to the chain,
+ * where the contract refused it; the refusal belonged before the wallet.
  */
 async function estimateFees(
   client: Client,
@@ -108,22 +116,28 @@ async function estimateFees(
   functionName: string,
   args: unknown[],
   simulate: boolean,
+  retryMs: number,
 ): Promise<TxFees> {
   if (simulate) {
-    try {
-      const est: TransactionFeeEstimate = await Promise.race([
-        client.estimateTransactionFeesForWrite({ address: address as `0x${string}`, functionName, args, value: 0n }),
-        sleep(SIMULATION_TIMEOUT_MS).then(() => {
-          throw new SimulationStalled("the simulation did not answer");
-        }),
-      ]);
-      return {
-        distribution: est.distribution,
-        feeValue: floorFee(BigInt(est.feeValue)),
-        messageAllocations: est.messageAllocations,
-      };
-    } catch (err) {
-      if (contractRefusal(err)) throw err;
+    for (let attempt = 1; attempt <= SIMULATION_ATTEMPTS; attempt++) {
+      try {
+        const est: TransactionFeeEstimate = await Promise.race([
+          client.estimateTransactionFeesForWrite({ address: address as `0x${string}`, functionName, args, value: 0n }),
+          sleep(SIMULATION_TIMEOUT_MS).then(() => {
+            throw new SimulationStalled("the simulation did not answer");
+          }),
+        ]);
+        return {
+          distribution: est.distribution,
+          feeValue: floorFee(BigInt(est.feeValue)),
+          messageAllocations: est.messageAllocations,
+        };
+      } catch (err) {
+        if (contractRefusal(err)) throw err;
+        const dropped = !(err instanceof SimulationStalled) && isTransient(errorText(err));
+        if (!dropped || attempt === SIMULATION_ATTEMPTS) break;
+        await sleep(retryMs * attempt);
+      }
     }
   }
   const est: TransactionFeeEstimate = await client.estimateTransactionFees();
@@ -259,7 +273,7 @@ export async function writeAndConfirm({
 
   let fees: TxFees;
   try {
-    fees = await estimateFees(client, address, functionName, args, simulate);
+    fees = await estimateFees(client, address, functionName, args, simulate, Math.min(pollMs, 1_000));
   } catch (err) {
     const refusal = contractRefusal(err);
     const detail = refusal

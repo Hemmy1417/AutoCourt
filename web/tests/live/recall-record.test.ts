@@ -96,7 +96,7 @@ describe.skipIf(!LIVE)("a claim tested against NHTSA's recall list", () => {
     expect(first.confidence).toBe("HIGH");
     expect(first.next_action).toBe("RAISE_WITH_SELLER");
     expect(run1.report.rollup).toBe("MATERIAL_CONCERN");
-    expect(run1.report.ruleset).toBe("autocourt-rules-4");
+    expect(run1.report.ruleset).toBe("autocourt-rules-5");
 
     // 4. The seller's appeal: their own signed declaration, then the appeal in their own name.
     const declared = await upload(

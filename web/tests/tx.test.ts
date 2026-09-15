@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { TxFinalityView } from "../lib/read";
-import { contractRefusal, stageClass, writeAndConfirm, type TxProgress } from "../lib/tx";
+import { SIMULATION_ATTEMPTS, contractRefusal, stageClass, writeAndConfirm, type TxProgress } from "../lib/tx";
 
 const HASH = `0x${"ab".repeat(32)}`;
 const FEES = { distribution: { leaderTimeout: 1n }, feeValue: 5n * 10n ** 16n };
@@ -101,12 +101,43 @@ describe("sizing the fee", () => {
   it("falls back to the plain estimate when a simulation fails for a reason that is not the contract's", async () => {
     const client = fakeClient({
       estimateTransactionFeesForWrite: vi.fn(async () => {
-        throw new Error("fetch failed");
+        throw new Error("simulation is not available for this method");
       }),
     });
     const { hash } = await run(client);
     expect(hash).toBe(HASH);
+    expect(client.estimateTransactionFeesForWrite).toHaveBeenCalledOnce();
     expect(client.estimateTransactionFees).toHaveBeenCalledOnce();
+  });
+
+  it("asks a simulation the network dropped again, and stops on the refusal it then returns", async () => {
+    let calls = 0;
+    const client = fakeClient({
+      estimateTransactionFeesForWrite: vi.fn(async () => {
+        calls += 1;
+        if (calls === 1) throw new Error("fetch failed");
+        throw refusal("[EXPECTED] only the seller of record can seal the packet");
+      }),
+    });
+    const { stages, error } = await run(client);
+    expect(error).toBeTruthy();
+    expect(client.estimateTransactionFeesForWrite).toHaveBeenCalledTimes(2);
+    expect(client.estimateTransactionFees).not.toHaveBeenCalled();
+    expect(client.writeContract).not.toHaveBeenCalled();
+    expect(stages.at(-1)).toMatchObject({ stage: "failed", at: "estimating" });
+    expect(stages.at(-1)!.detail).toContain("only the seller of record can seal the packet");
+  });
+
+  it("prices the write without the simulation only after the network dropped it every time", async () => {
+    const client = fakeClient({
+      estimateTransactionFeesForWrite: vi.fn(async () => {
+        throw new Error("fetch failed");
+      }),
+    });
+    const { hash } = await run(client);
+    expect(client.estimateTransactionFeesForWrite).toHaveBeenCalledTimes(SIMULATION_ATTEMPTS);
+    expect(client.estimateTransactionFees).toHaveBeenCalledOnce();
+    expect(hash).toBe(HASH);
   });
 
   it("never sends a zero deposit", async () => {

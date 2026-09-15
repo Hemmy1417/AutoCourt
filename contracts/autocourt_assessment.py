@@ -169,7 +169,7 @@ ROLLUP_ORDER = ("POSSIBLE_ODOMETER_ROLLBACK", "MILEAGE_CONFLICT",
                 "INSUFFICIENT_EVIDENCE", "VERIFIED", "PARTIALLY_VERIFIED",
                 "INCONCLUSIVE")
 
-RULESET_VERSION = "autocourt-rules-4"
+RULESET_VERSION = "autocourt-rules-5"
 
 
 # ── deterministic helpers ────────────────────────────────────────────────────
@@ -356,6 +356,14 @@ def _obd_normalize(codes) -> list:
                 and s not in out):
             out.append(s)
     return sorted(out)
+
+
+def _names_a_code(text: str, codes: list) -> bool:
+    """Does a quote carry one of the recorded trouble codes, in any spelling
+    ("P0128", "p0128", "P-0128")? Such a quote names the fault; it does not
+    describe an effect of it."""
+    squashed = "".join(ch for ch in str(text).upper() if ch.isalnum())
+    return any(str(code) in squashed for code in codes)
 
 
 # ── mileage (every parse, conversion and comparison in code; the model never
@@ -1753,7 +1761,7 @@ FIND, from this record alone:
 1. findings — for EACH claim, for each evidence item that bears on it: status SUPPORTED (the item's content supports the declared value), CONTRADICTED (it contradicts it), or ABSENT (it does not speak to it). Give severity for non-ABSENT findings: MINOR, MODERATE, MAJOR, or SAFETY_CRITICAL. Quote the exact passage(s) that ground each non-ABSENT finding (1-3 quotes, each 8-240 characters, copied from the item text).
 2. sufficiency — per claim: SUFFICIENT if the record can establish or refute the declared value, PARTIAL if material pieces are missing, INSUFFICIENT otherwise.
 3. explanations — for each odometer conflict id listed above: EXPLAINED only if the record itself accounts for the inversion (an odometer replacement documented, a unit correction stated), with the grounding quote; otherwise NOT_EXPLAINED.
-4. diagnostic — whether the recorded trouble codes are supported by symptoms or context in the evidence (a stored code alone is not a defect): supported true/false, severity, safety_critical true/false, quotes if supported.
+4. diagnostic — for the recorded trouble codes only. supported is true ONLY when an evidence item describes, in its own words, an observed effect of a recorded code's fault: a symptom (rough running, a warning light on, a noise, a smell, a leak) or a measurement out of range. A document that only lists, names or defines a code is not support, however it phrases the code's meaning; a stored code with no reported effect is not support; and when the evidence reports that the affected system behaved normally, supported is false. Give supported true/false, severity, safety_critical true/false, and when supported, quotes of the observed effect itself — never the line that names the code.
 5. unresolved_questions — per claim, one or two sentences on what additional evidence would reduce uncertainty. This is narrative, not consensus-checked.
 
 GUARDRAILS:
@@ -1783,7 +1791,7 @@ Respond ONLY with JSON:
 
             findings_by_claim, explanations, diagnostic, unresolved = \
                 _normalize_panel_output(raw, claim_ids, eligible, texts,
-                                        conflict_ids, bool(diag_codes))
+                                        conflict_ids, diag_codes)
 
             sufficiency_in = raw.get("sufficiency")
             sufficiency = {}
@@ -2088,7 +2096,7 @@ Respond ONLY with JSON:
 
 def _normalize_panel_output(raw: dict, claim_ids: list, eligible: list,
                             texts: dict, conflict_ids: list,
-                            has_diag_codes: bool):
+                            diag_codes: list):
     """Boundary validation with drop-and-downgrade. An ungrounded quote is
     dropped; a non-ABSENT finding left with zero grounded quotes is
     DOWNGRADED to ABSENT (with the raw quotes printed), never a run
@@ -2188,7 +2196,7 @@ def _normalize_panel_output(raw: dict, claim_ids: list, eligible: list,
     diag_in = raw.get("diagnostic")
     diagnostic = {"supported": False, "severity": "MINOR",
                   "safety_critical": False}
-    if has_diag_codes and isinstance(diag_in, dict):
+    if diag_codes and isinstance(diag_in, dict):
         supported = diag_in.get("supported")
         if not isinstance(supported, bool):
             raise gl.vm.UserError(
@@ -2198,21 +2206,29 @@ def _normalize_panel_output(raw: dict, claim_ids: list, eligible: list,
             raise gl.vm.UserError(
                 f"{ERROR_LLM} diagnostic severity outside the enum")
         if supported:
+            # A stored code is not a defect, and neither is the line that
+            # names it. Support needs a grounded quote of an observed effect,
+            # so a quote that carries a recorded code identifier does not
+            # count, whatever the model says it shows. Found live: a scanner
+            # report whose road test read normal still raised the flag, and
+            # every voting validator agreed.
             raw_quotes = diag_in.get("quotes", [])
             if isinstance(raw_quotes, str):
                 raw_quotes = [raw_quotes]
-            grounded_any = False
+            effect_quoted = False
             if isinstance(raw_quotes, list):
                 for q in raw_quotes:
                     qt = q if isinstance(q, str) else (
                         q.get("text") if isinstance(q, dict) else None)
-                    if isinstance(qt, str) and _ground_quote(
-                            qt, None, eligible, texts) is not None:
-                        grounded_any = True
+                    if not isinstance(qt, str) or _names_a_code(qt, diag_codes):
+                        continue
+                    if _ground_quote(qt, None, eligible, texts) is not None:
+                        effect_quoted = True
                         break
-            if not grounded_any:
-                print("[DOWNGRADE] diagnostic SUPPORTED: no grounded "
-                      "symptom-support quote; recorded unsupported")
+            if not effect_quoted:
+                print("[DOWNGRADE] diagnostic SUPPORTED: no grounded quote of "
+                      "an observed effect (a quote naming the code does not "
+                      "count); recorded unsupported")
                 supported = False
         diagnostic = {
             "supported": bool(supported),

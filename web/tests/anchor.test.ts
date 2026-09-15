@@ -13,8 +13,8 @@ describe("the bytes a validator hashes for an independent source", () => {
     // The registry extract committed at 76a39ee. The first digest is the raw
     // file's, which no validator computes. The second is what every validator
     // hashed in the render probe (tx 0xeab8968f…8d27), and what the clean
-    // record ac-000003's source entered under on the deployment of record
-    // (tx 0xb8b696ef…a6afc).
+    // record ac-000001's source entered under on the deployment of record
+    // (tx 0xd37b62bd…7b210).
     expect(await sha256Text(FIXTURE)).toBe("83a9bc85009906d87faa1aa088c27cd80f91d5311a22ed9a8391fddb8a8fb0e3");
     expect(await sha256Text(renderedText(FIXTURE))).toBe(
       "4308ed17c2a6685ec1f1d9bc4c53c297882c8fe3c74d2b24f3566004f3682eb6",

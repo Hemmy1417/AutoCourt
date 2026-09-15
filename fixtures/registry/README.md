@@ -28,7 +28,7 @@ the rendered text, not these raw bytes. Pinned at commit `76a39ee`:
 | the text every validator hashes | `4308ed17c2a6685ec1f1d9bc4c53c297882c8fe3c74d2b24f3566004f3682eb6` |
 
 Every validator hashes the second: the render probe measured it
-(docs/PROBE-REPORT.md, "The render probe"), and the clean record `ac-000003`
+(docs/PROBE-REPORT.md, "The render probe"), and the clean record `ac-000001`
 entered this file `EXTRACTED` under it on the deployment of record. A source
 committed under the first would enter as unavailable and never be judged.
 Check both:

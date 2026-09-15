@@ -247,7 +247,7 @@ def test_config_publishes_the_registry_and_signature_bounds(module, c):
     assert cfg["identity_registry_host"] == "vpic.nhtsa.dot.gov"
     assert "MISMATCH" in cfg["identity_statuses"]
     assert cfg["max_signature_chars"] == 200
-    assert cfg["ruleset"] == "autocourt-rules-4"
+    assert cfg["ruleset"] == "autocourt-rules-5"
     assert cfg["writes_bound_to_signer"] is True
     assert (cfg["max_seller_items_at_submission"]
             + cfg["max_other_items_at_submission"]

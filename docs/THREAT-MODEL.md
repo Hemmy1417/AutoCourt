@@ -10,7 +10,7 @@ page: it reads the contract straight from the visitor's browser, and every
 write is signed by the wallet of the person taking the step. There is no
 server holding files, keys, sessions or a queue. This document is written
 for that shape and for the deployment of record named in the README
-(ruleset `autocourt-rules-4`); the full-stack build it replaced ran every
+(ruleset `autocourt-rules-5`); the full-stack build it replaced ran every
 transaction through an operator's wallet, and its rows are gone with it.
 
 ## The parties
@@ -49,6 +49,7 @@ transaction through an operator's wallet, and its rows are gone with it.
 | Substituted bytes in an appeal | The manifest commits the normalized-text hash, not just the file hash, and recorded items are read from contract storage by id: there is no parameter through which replacement bytes could travel. An appeal never refetches a source. |
 | Accusation laundering past the floor | Every floor keys on the `adverse` attribute: an accusation resting only on the accuser's own uploads lands at inspection or insufficient, whichever enum name it wears, and the rollback flag needs two distinct accounts or an independent source. |
 | Answering an independent source with your own paperwork | Neither side's own uploads can turn an independent source into a conflict. Against `INDEPENDENT` support, an accuser's own contradiction caps the claim instead; against an `INDEPENDENT` contradiction, support that is only first-party is judged as absent from the derivation. Proven live: the recall record's appeal panel read the seller's signed declaration as support, and the claim stayed `CLAIM_CONTRADICTED`. |
+| A stored trouble code passed off as a defect | The diagnostic flag needs the panel to find an observed effect of a recorded code's fault, and a support quote that names the code, in any spelling, does not count in code. The panel is told that a document which only lists, names or defines a code is not support, and that a report of normal operation means no. Proven live with controls: the same code raised the flag beside a report of symptoms and did not beside a normal road test or the code's bare definition. |
 | A document passed off as another party's | An upload is recorded in its signer's name, and each item also carries its uploader's EIP-191 signature over both of its hashes, on the public record. The app verifies it on every view ("Signed by its uploader" or "Signature does not match these bytes"), and anyone can repeat the check from chain data alone. |
 
 ## Detectable after the fact
@@ -84,6 +85,11 @@ transaction through an operator's wallet, and its rows are gone with it.
   characters of the rendered page and the contract stores the first 6,000 of
   its normalized text. NHTSA's list for the 2003 Honda Accord is about 36,000
   characters, so the panel reads its first recalls, not all 24.
+- **What counts as an observed effect is still the panel's reading.** The
+  code refuses a support quote that names a recorded code; it cannot tell a
+  paraphrase of the code's meaning from a real symptom. The question the
+  panel is asked closes that gap in practice (three live controls agreed),
+  not by construction.
 - **Evidence is public, permanently.** Publishing an item writes its text
   after redaction, its label, readings, both fingerprints and the signature
   to a public chain. Redaction must happen before publishing and is
