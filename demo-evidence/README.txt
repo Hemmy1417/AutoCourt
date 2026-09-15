@@ -1,6 +1,16 @@
 Demo documents for AutoCourt.
 
-Choose any of these in "Add evidence" on a record:
+The clean record. List VIN 1HGCM82633A004352 as a 2003 Honda Accord with the
+claim Mileage "87,432 miles". Upload honda-accord-invoice.txt with a typed
+reading (2026-03-07, 87432 mi), then add this independent source:
+https://raw.githubusercontent.com/Hemmy1417/AutoCourt/76a39eea547c8286dcdaf360899303f9c75b481b/fixtures/registry/1HGCM82633A004352.txt
+Seal and request adjudication: the claim comes back Verified, High
+confidence, backed by an independent source.
+
+  honda-accord-invoice.txt  the seller's invoice for that Honda (first-party)
+
+The documents below name VIN 1M8GDM9AXKP042788 instead. Choose any of them
+in "Add evidence" on a record:
 
   service-invoice.txt     the seller's own paperwork (first-party)
   vehicle-history.txt     a history pull that mentions a wing refinish

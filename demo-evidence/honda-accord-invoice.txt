@@ -1,0 +1,13 @@
+SERVICE INVOICE No. 30871
+Harbour Road Motors, Eastfield
+Date: 2026-03-07
+
+Vehicle: 2003 Honda Accord, VIN 1HGCM82633A004352, registration EF03 HNA
+Odometer at service: 87,432 miles
+
+Work carried out:
+- Annual roadworthiness inspection: passed
+- Engine oil and filter changed
+- Front wiper blades replaced
+
+Total: 214.60
